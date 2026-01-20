@@ -46,6 +46,7 @@ ExternalProject_Add(libsocket
              -DCMAKE_BUILD_TYPE:STRING=Release
              -DBUILD_SHARED_LIBS=ON
              -DCMAKE_POLICY_DEFAULT_CMP0077=NEW
+             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
   BUILD_COMMAND $(MAKE)
   INSTALL_COMMAND $(MAKE) install
 )
@@ -119,6 +120,14 @@ install(TARGETS
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
+
+# --- Install Unity Simulation binaries ---
+install(PROGRAMS
+  unity_sim/Simulation.x86_64
+  unity_sim/UnityPlayer.so
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 # --- Export and package ------------------------------------------------------
 ament_export_dependencies(
