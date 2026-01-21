@@ -25,18 +25,8 @@ find_package(Eigen3 REQUIRED)
 # --- Includes ----------------------------------------------------------------
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
-# --- Libraries ----------------------------------------------------------------
-add_library(controller_lib SHARED IMPORTED)
-# Path to the precompiled .so inside the repository
-set_target_properties(controller_lib PROPERTIES
-  IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcontroller_lib.so"
-  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
-)
-
 # --- Executable ---------------------------------------------------------------
-add_executable(controller_node src/controller_wrapper.cpp)
-
-target_link_libraries(controller_node controller_lib)
+add_executable(controller_node src/controller_node.cpp)
 
 ament_target_dependencies(controller_node
   rclcpp
@@ -54,18 +44,11 @@ install(TARGETS controller_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(
-  FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libcontroller_lib.so
-  DESTINATION lib
-)
-
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
 # --- Export ------------------------------------------------------------------
-
 ament_export_dependencies(
   rclcpp
   std_msgs
