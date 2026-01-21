@@ -12,7 +12,7 @@
  #include "rclcpp/rclcpp.hpp"
  #include "Eigen/Dense"
  
- #include "basic_waypoint_pkg/planner.hpp"
+ #include "planner.hpp"
  
  int main(int argc, char ** argv)
  {
