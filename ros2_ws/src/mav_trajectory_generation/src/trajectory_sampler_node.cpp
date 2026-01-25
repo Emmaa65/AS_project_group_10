@@ -36,14 +36,14 @@
  
    // Service (stop sampling)
    stop_srv_ = this->create_service<std_srvs::srv::Empty>(
-     "stop_sampling",
+     "/stop_sampling",
      std::bind(
        &TrajectorySamplerNode::stopSamplingCallback, this,
        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
  
    // Client to take over publishing commands
    position_hold_client_ =
-     this->create_client<std_srvs::srv::Empty>("back_to_position_hold");
+     this->create_client<std_srvs::srv::Empty>("/back_to_position_hold");
  
    // Timer: create but don't start immediately (cancel, then reset when needed)
    publish_timer_ = this->create_wall_timer(
@@ -94,22 +94,25 @@
      RCLCPP_WARN(get_logger(), "Failed to convert PolynomialTrajectory4D message to trajectory.");
      return;
    }
- 
+   
+   RCLCPP_INFO(get_logger(), "Trajectory loaded successfully. Max time: %f", trajectory_.getMaxTime());
    processTrajectory();
  }
  
  void TrajectorySamplerNode::processTrajectory()
  {
    // Call the service to tell the MAV interface to listen to our commands.
+   // Note: This service is optional; trajectory publishing will start regardless
    if (position_hold_client_) {
-     if (position_hold_client_->wait_for_service(0s)) {
+     if (position_hold_client_->wait_for_service(2s)) {
        auto request = std::make_shared<std_srvs::srv::Empty::Request>();
        // Fire-and-forget; we don't wait on the future.
        (void)position_hold_client_->async_send_request(request);
+       RCLCPP_INFO(get_logger(), "Called back_to_position_hold service successfully.");
      } else {
        RCLCPP_WARN(
          get_logger(),
-         "Service 'back_to_position_hold' not available when starting trajectory sampling.");
+         "Service 'back_to_position_hold' not available - proceeding with trajectory sampling anyway.");
      }
    }
  
@@ -132,7 +135,9 @@
  
  void TrajectorySamplerNode::commandTimerCallback()
  {
-   if (current_sample_time_ <= trajectory_.getMaxTime()) {
+   double max_time = trajectory_.getMaxTime();
+   
+   if (current_sample_time_ <= max_time) {
      trajectory_msgs::msg::MultiDOFJointTrajectoryPoint point_msg;
      mav_msgs::EigenTrajectoryPoint trajectory_point;
 
@@ -152,13 +157,14 @@
      auto & tfs = point_msg.time_from_start;
      const double t = current_sample_time_;
      tfs.sec = static_cast<int32_t>(t);
-     tfs.nanosec = static_cast<uint32_t>((t - tfs.sec) * 1e9);
+     tfs.nanosec = static_cast<uint32_t>((t - static_cast<double>(tfs.sec)) * 1e9);
 
      command_pub_->publish(point_msg);
+     RCLCPP_DEBUG(get_logger(), "Published trajectory point at time %f (max_time: %f)", current_sample_time_, max_time);
      current_sample_time_ += dt_;
    } else {
      publish_timer_->cancel();
-     RCLCPP_INFO(get_logger(), "Finished streaming trajectory.");
+     RCLCPP_INFO(get_logger(), "Finished streaming trajectory (total time: %f).", max_time);
    }
  }
  
