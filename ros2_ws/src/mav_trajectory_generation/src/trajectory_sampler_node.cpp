@@ -20,7 +20,7 @@
    dt_ = this->declare_parameter<double>("dt", dt_);
  
    // Publisher
-   command_pub_ = this->create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>(
+   command_pub_ = this->create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectoryPoint>(
      mav_msgs::default_topics::COMMAND_TRAJECTORY, 1);
  
    // Subscriptions
@@ -113,21 +113,10 @@
      }
    }
  
-   if (publish_whole_trajectory_) {
-     // Publish the entire trajectory at once.
-     mav_msgs::EigenTrajectoryPoint::Vector trajectory_points;
-     mav_trajectory_generation::sampleWholeTrajectory(
-       trajectory_, dt_, &trajectory_points);
- 
-     trajectory_msgs::msg::MultiDOFJointTrajectory msg_pub;
-     msgMultiDofJointTrajectoryFromEigen(trajectory_points, &msg_pub);
-     command_pub_->publish(msg_pub);
-   } else {
-     // Start timer-based streaming.
-     current_sample_time_ = 0.0;
-     start_time_ = this->get_clock()->now();
-     publish_timer_->reset();
-   }
+   // Start timer-based streaming of individual trajectory points
+   current_sample_time_ = 0.0;
+   start_time_ = this->get_clock()->now();
+   publish_timer_->reset();
  }
  
  void TrajectorySamplerNode::stopSamplingCallback(
@@ -144,9 +133,9 @@
  void TrajectorySamplerNode::commandTimerCallback()
  {
    if (current_sample_time_ <= trajectory_.getMaxTime()) {
-     trajectory_msgs::msg::MultiDOFJointTrajectory msg;
+     trajectory_msgs::msg::MultiDOFJointTrajectoryPoint point_msg;
      mav_msgs::EigenTrajectoryPoint trajectory_point;
- 
+
      bool success = mav_trajectory_generation::sampleTrajectoryAtTime(
        trajectory_, current_sample_time_, &trajectory_point);
      if (!success) {
@@ -156,18 +145,16 @@
        publish_timer_->cancel();
        return;
      }
- 
-     mav_msgs::msgMultiDofJointTrajectoryFromEigen(trajectory_point, &msg);
- 
-     if (!msg.points.empty()) {
-       // Fill time_from_start (builtin_interfaces/msg/Duration)
-       auto & tfs = msg.points[0].time_from_start;
-       const double t = current_sample_time_;
-       tfs.sec = static_cast<int32_t>(t);
-       tfs.nanosec = static_cast<uint32_t>((t - tfs.sec) * 1e9);
-     }
- 
-     command_pub_->publish(msg);
+
+     mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &point_msg);
+
+     // Fill time_from_start (builtin_interfaces/msg/Duration)
+     auto & tfs = point_msg.time_from_start;
+     const double t = current_sample_time_;
+     tfs.sec = static_cast<int32_t>(t);
+     tfs.nanosec = static_cast<uint32_t>((t - tfs.sec) * 1e9);
+
+     command_pub_->publish(point_msg);
      current_sample_time_ += dt_;
    } else {
      publish_timer_->cancel();

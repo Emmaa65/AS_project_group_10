@@ -28,18 +28,18 @@
    rclcpp::Rate init_rate(10.0);
    init_rate.sleep();
  
-   // Define goal point
-   Eigen::Vector3d goal_position, goal_velocity;
-   goal_position << 0.0, 0.0, 6.0;
-   goal_velocity << 0.0, 0.0, 0.0;
- 
-   // Process some callbacks so that the odom callback can run
+   // Process callbacks to receive odometry and update current position
    rclcpp::Rate spin_rate(50.0);
-   for (int i = 0; i < 10; ++i) {
+   for (int i = 0; i < 100; ++i) {
      rclcpp::spin_some(node);
      spin_rate.sleep();
    }
  
+   // Define goal point
+   Eigen::Vector3d goal_position, goal_velocity;
+   goal_position << 0.0, 0.0, 6.0;
+   goal_velocity << 0.0, 0.0, 0.0;
+  // (Already processed callbacks above to receive odometry)
    // Plan and publish trajectory
    mav_trajectory_generation::Trajectory trajectory;
    planner.planTrajectory(goal_position, goal_velocity, &trajectory);
