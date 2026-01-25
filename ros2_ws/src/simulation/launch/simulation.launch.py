@@ -103,7 +103,7 @@ def generate_launch_description():
         output="screen",
         remappings=[
             ("desired_state", "command/trajectory"),  # From trajectory sampler
-            ("current_state", "current_state"),       # From unity (uncorrupted)
+            ("current_state", "current_state_est"),   # From estimator
         ],
     )
 
