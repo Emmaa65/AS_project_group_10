@@ -109,7 +109,7 @@ bool BasicPlanner::planTrajectory(
     // middle point 1
     middle = mav_trajectory_generation::Vertex(dimension);
     middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
-                        Eigen::Vector3d(-20.0, 10.0, 6.5));
+                        Eigen::Vector3d(-37.0, 0.0, 7.0));
     vertices.push_back(middle);
     
     

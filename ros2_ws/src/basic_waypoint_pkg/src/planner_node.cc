@@ -30,12 +30,12 @@
    
    // Define goal point
    Eigen::Vector3d goal_position, goal_velocity;
-   goal_position << 5.0, 3.0, 6.0;
+   goal_position << -37.0, 3.0, 10.0;
    goal_velocity << 0.0, 0.0, 0.0;
 
-   // Process callbacks to receive odometry and update current position
+   // Process some callbacks to receive odometry and update current position
    rclcpp::Rate spin_rate(50.0);
-   for (int i = 0; i < 100; ++i) {
+   for (int i = 0; i < 10; ++i) {
      rclcpp::spin_some(node);
      spin_rate.sleep();
    }
