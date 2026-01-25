@@ -31,19 +31,16 @@ def generate_launch_description():
         parameters=[trajectory_config]
     )
 
-    # Trajectory sampler node
-    sampler_node = Node(
-        package="mav_trajectory_generation",
-        executable="trajectory_sampler_node",
-        name="sampler",
+    # Trajectory executor node
+    executor_node = Node(
+        package="basic_waypoint_pkg",
+        executable="trajectory_executor",
+        name="executor",
         output="screen",
-        remappings=[
-            ("path_segments_4D", "trajectory"),
-        ],
     )
 
     return LaunchDescription([
         mav_name_arg,
         planner_node,
-        sampler_node,
+        executor_node,
     ])

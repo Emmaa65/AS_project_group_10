@@ -109,7 +109,7 @@ def generate_launch_description():
         name="controller_node",
         output="screen",
         remappings=[
-            ("desired_state", "command/trajectory"),  # From trajectory sampler
+
             ("current_state", "current_state_est"),   # From state estimator
         ],
     )

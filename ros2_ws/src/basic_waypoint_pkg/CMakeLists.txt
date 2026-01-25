@@ -34,7 +34,7 @@ find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # ==== Executable ====
-# You can keep the original target name or pick something clearer like planner_node.
+# Planner node
 add_executable(basic_waypoint_node
   src/planner.cc
   src/planner_node.cc
@@ -46,7 +46,6 @@ target_include_directories(basic_waypoint_node
     $<INSTALL_INTERFACE:include>
     ${EIGEN3_INCLUDE_DIRS}
 )
-
 
 # Pull in include dirs + link flags for all ament packages
 ament_target_dependencies(basic_waypoint_node
@@ -64,10 +63,33 @@ ament_target_dependencies(basic_waypoint_node
   yaml-cpp
 )
 
+# Trajectory executor node
+add_executable(trajectory_executor
+  src/trajectory_executor.cpp
+)
+
+target_include_directories(trajectory_executor
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+    ${EIGEN3_INCLUDE_DIRS}
+)
+
+ament_target_dependencies(trajectory_executor
+  rclcpp
+  mav_msgs
+  mav_planning_msgs
+  mav_trajectory_generation
+  trajectory_msgs
+  geometry_msgs
+  Eigen3
+)
+
 # ==== Installation ====
 install(
   TARGETS
     basic_waypoint_node
+    trajectory_executor
   DESTINATION lib/${PROJECT_NAME}
 )
 

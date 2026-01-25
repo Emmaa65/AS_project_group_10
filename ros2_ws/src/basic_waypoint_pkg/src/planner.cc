@@ -4,7 +4,7 @@
 
 BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr & node)
 : node_(node),
-  current_pose_(Eigen::Affine3d::Identity()),
+  current_pose_(Eigen::Affine3d::Identity()), //default value before the real (or estimated) current pose is assigned
   current_velocity_(Eigen::Vector3d::Zero()),
   current_angular_velocity_(Eigen::Vector3d::Zero()),
   max_v_(0.2),
