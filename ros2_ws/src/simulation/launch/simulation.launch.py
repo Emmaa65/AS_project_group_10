@@ -101,6 +101,10 @@ def generate_launch_description():
         executable="controller_node",
         name="controller_node",
         output="screen",
+        remappings=[
+            ("desired_state", "command/trajectory"),  # From trajectory sampler
+            ("current_state", "current_state"),       # From unity (uncorrupted)
+        ],
     )
 
     # Static TF publishers (ROS2 CLI style args; verify for your ROS2 distro)
