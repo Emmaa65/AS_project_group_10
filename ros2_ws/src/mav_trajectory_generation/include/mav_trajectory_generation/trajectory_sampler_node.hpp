@@ -11,7 +11,7 @@
  #include <rclcpp/rclcpp.hpp>
  
  #include <std_srvs/srv/empty.hpp>
- #include <trajectory_msgs/msg/multi_dof_joint_trajectory_point.hpp>
+ #include <trajectory_msgs/msg/multi_dof_joint_trajectory.hpp>
  
  #include <mav_msgs/conversions.hpp>
  #include <mav_msgs/default_topics.hpp>
@@ -52,7 +52,7 @@
    // ROS 2 entities
    rclcpp::Subscription<mav_planning_msgs::msg::PolynomialTrajectory>::SharedPtr trajectory_sub_;
    rclcpp::Subscription<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr trajectory4D_sub_;
-  rclcpp::Publisher<trajectory_msgs::msg::MultiDOFJointTrajectoryPoint>::SharedPtr command_pub_;
+   rclcpp::Publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>::SharedPtr command_pub_;
    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr stop_srv_;
    rclcpp::Client<std_srvs::srv::Empty>::SharedPtr position_hold_client_;
    rclcpp::TimerBase::SharedPtr publish_timer_;
