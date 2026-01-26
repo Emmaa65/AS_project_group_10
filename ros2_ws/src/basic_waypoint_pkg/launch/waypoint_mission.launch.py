@@ -28,7 +28,10 @@ def generate_launch_description():
         executable="basic_waypoint_node",   # ROS1: type="basic_waypoint_pkg"
         name="planner",
         output="screen",
-        parameters=[trajectory_config]
+        parameters=[trajectory_config],
+        remappings=[
+            ("odom", "current_state_est"),  # Remap odom to current_state_est from simulator
+        ]
     )
 
     # Trajectory executor node
