@@ -108,6 +108,9 @@ def generate_launch_description():
         executable="controller_node",
         name="controller_node",
         output="screen",
+        parameters=[
+            PathJoinSubstitution([FindPackageShare("controller_pkg"), "config", "controller_params.yaml"])
+        ],
         remappings=[
 
             ("current_state", "current_state_est"),   # From state estimator
