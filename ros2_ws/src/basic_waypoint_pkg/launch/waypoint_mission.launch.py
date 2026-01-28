@@ -28,22 +28,22 @@ def generate_launch_description():
         executable="basic_waypoint_node",   # ROS1: type="basic_waypoint_pkg"
         name="planner",
         output="screen",
-        parameters=[trajectory_config]
+        parameters=[trajectory_config],
+        remappings=[
+            ("odom", "current_state_est"),  # Remap odom to current_state_est from simulator
+        ]
     )
 
-    # Trajectory sampler node
-    sampler_node = Node(
-        package="mav_trajectory_generation",
-        executable="trajectory_sampler_node",
-        name="sampler",
+    # Trajectory executor node
+    executor_node = Node(
+        package="basic_waypoint_pkg",
+        executable="trajectory_executor",
+        name="executor",
         output="screen",
-        remappings=[
-            ("path_segments_4D", "trajectory"),
-        ],
     )
 
     return LaunchDescription([
         mav_name_arg,
         planner_node,
-        sampler_node,
+        executor_node,
     ])

@@ -128,6 +128,12 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Install Unity Data directory (required for Unity to run)
+install(DIRECTORY
+  unity_sim/Simulation_Data
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 # --- Export and package ------------------------------------------------------
 ament_export_dependencies(

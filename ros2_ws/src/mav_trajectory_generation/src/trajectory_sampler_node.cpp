@@ -3,7 +3,7 @@
  */
 
  #include <chrono>
-
+ 
  #include "mav_trajectory_generation/trajectory_sampler_node.hpp"
  
  using namespace std::chrono_literals;
@@ -36,7 +36,7 @@
  
    // Service (stop sampling)
    stop_srv_ = this->create_service<std_srvs::srv::Empty>(
-     "stop_sampling",
+     "/stop_sampling",
      std::bind(
        &TrajectorySamplerNode::stopSamplingCallback, this,
        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
@@ -98,6 +98,8 @@
    processTrajectory();
  }
  
+
+ 
  void TrajectorySamplerNode::processTrajectory()
  {
    // Call the service to tell the MAV interface to listen to our commands.
@@ -105,7 +107,7 @@
      if (position_hold_client_->wait_for_service(0s)) {
        auto request = std::make_shared<std_srvs::srv::Empty::Request>();
        // Fire-and-forget; we don't wait on the future.
-       (void)position_hold_client_->async_send_request(request);
+       (void)position_hold_client_->async_send_request(request);     
      } else {
        RCLCPP_WARN(
          get_logger(),
@@ -118,7 +120,7 @@
      mav_msgs::EigenTrajectoryPoint::Vector trajectory_points;
      mav_trajectory_generation::sampleWholeTrajectory(
        trajectory_, dt_, &trajectory_points);
- 
+
      trajectory_msgs::msg::MultiDOFJointTrajectory msg_pub;
      msgMultiDofJointTrajectoryFromEigen(trajectory_points, &msg_pub);
      command_pub_->publish(msg_pub);
@@ -146,7 +148,7 @@
    if (current_sample_time_ <= trajectory_.getMaxTime()) {
      trajectory_msgs::msg::MultiDOFJointTrajectory msg;
      mav_msgs::EigenTrajectoryPoint trajectory_point;
- 
+
      bool success = mav_trajectory_generation::sampleTrajectoryAtTime(
        trajectory_, current_sample_time_, &trajectory_point);
      if (!success) {
@@ -156,9 +158,9 @@
        publish_timer_->cancel();
        return;
      }
- 
+
      mav_msgs::msgMultiDofJointTrajectoryFromEigen(trajectory_point, &msg);
- 
+
      if (!msg.points.empty()) {
        // Fill time_from_start (builtin_interfaces/msg/Duration)
        auto & tfs = msg.points[0].time_from_start;
@@ -166,7 +168,7 @@
        tfs.sec = static_cast<int32_t>(t);
        tfs.nanosec = static_cast<uint32_t>((t - tfs.sec) * 1e9);
      }
- 
+
      command_pub_->publish(msg);
      current_sample_time_ += dt_;
    } else {

@@ -49,6 +49,10 @@ public:
     double distance, const std::string & frame_id,
     visualization_msgs::msg::MarkerArray * marker_array);
 
+  bool hasReceivedOdometry() const { return has_received_odom_; }
+  
+  Eigen::Vector3d getCurrentPosition() const { return current_pose_.translation(); }
+
 private:
   rclcpp::Node::SharedPtr node_;
 
@@ -59,6 +63,8 @@ private:
   Eigen::Affine3d current_pose_;
   Eigen::Vector3d current_velocity_;
   Eigen::Vector3d current_angular_velocity_;
+  
+  bool has_received_odom_;
 
   double max_v_;      // m/s
   double max_a_;      // m/s^2
