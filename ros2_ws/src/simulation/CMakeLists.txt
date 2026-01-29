@@ -34,6 +34,8 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+find_package(tf2_sensor_msgs REQUIRED)
+
 # --- External projects ------------
 include(ExternalProject)
 include(GNUInstallDirs)  # gives CMAKE_INSTALL_{BINDIR,LIBDIR,…}
@@ -108,11 +110,21 @@ target_link_libraries(unity_ros tcpimage)
 target_link_directories(unity_ros PRIVATE ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 add_dependencies(unity_ros libsocket)
 
+add_executable(pointcloud_to_occupancy_grid_node src/pointcloud_to_occupancy_grid_node.cpp)
+ament_target_dependencies(pointcloud_to_occupancy_grid_node
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  tf2_ros
+  tf2_sensor_msgs
+)
+
 # --- Install targets -------------------------------------
 install(TARGETS
   w_to_unity
   state_estimate_corruptor_node
   unity_ros
+  pointcloud_to_occupancy_grid_node    # <- NEU
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
