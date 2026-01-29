@@ -4,15 +4,14 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
-        # Fertiges ROS2 Package für Point Cloud Generation
         Node(
             package='depth_image_proc',
             executable='point_cloud_xyz_node',
             name='depth_to_pointcloud',
             output='screen',
             remappings=[
-                ('image_rect', '/sim_rgb_camera/depth/image_raw'),
-                ('camera_info', '/sim_rgb_camera/camera_info'),
+                ('image_rect', '/realsense/depth/image'),
+                ('camera_info', '/realsense/depth/camera_info'),
                 ('points', '/camera/pointcloud')
             ],
             parameters=[{
@@ -20,7 +19,6 @@ def generate_launch_description():
             }]
         ),
         
-        # Dein eigener Occupancy Grid Node
         Node(
             package='perception_pkg',
             executable='pointcloud_to_occupancy_grid_node',
