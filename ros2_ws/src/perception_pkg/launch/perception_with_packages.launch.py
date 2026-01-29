@@ -22,7 +22,7 @@ def generate_launch_description():
         
         # Dein eigener Occupancy Grid Node
         Node(
-            package='simulation',
+            package='perception_pkg',
             executable='pointcloud_to_occupancy_grid_node',
             name='pointcloud_to_grid',
             output='screen',
