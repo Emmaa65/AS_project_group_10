@@ -114,14 +114,73 @@ bool BasicPlanner::planTrajectory(
   vertices.push_back(start);
 
   /******* Configure trajectory (intermediate waypoints) *******/
-  RCLCPP_INFO(node_->get_logger(), "Creating waypoints for two-loop parkour trajectory");
+  RCLCPP_INFO(node_->get_logger(), "Creating predefined waypoints to the entrance of the cave");
   
   // Path from initial position to entrance of the hole
-    // middle point 1
-    middle = mav_trajectory_generation::Vertex(dimension);
-    middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
-                        Eigen::Vector3d(-37.0, 0.0, 7.0));
-    vertices.push_back(middle);
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-40, 10.0, 12.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-45, 10.0, 14.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-50, 10.0, 15.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-75, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-100, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-125, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-150, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-175, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-200, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-225, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-250, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-275, 10.0, 20.0));
+  vertices.push_back(middle);
+
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
+                      Eigen::Vector3d(-300, 10.0, 20.0));
+  vertices.push_back(middle);
     
     
   RCLCPP_INFO(node_->get_logger(), "Added %zu intermediate waypoints for two loops", 

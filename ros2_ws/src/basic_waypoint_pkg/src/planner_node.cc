@@ -30,7 +30,7 @@
    
    // Define goal point
    Eigen::Vector3d goal_position, goal_velocity;
-   goal_position << -37.0, 3.0, 10.0;
+   goal_position << -330, 10.0, 20.0;
    goal_velocity << 0.0, 0.0, 0.0;
 
    // Process some callbacks to receive odometry and update current position
