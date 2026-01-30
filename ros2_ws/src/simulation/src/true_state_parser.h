@@ -47,7 +47,7 @@ public:
     }    
 
     geometry_msgs::msg::PoseStamped pose_msg;
-    pose_msg.header.frame_id = "body"; //"odom_nav";
+    pose_msg.header.frame_id = "world"; //"odom_nav";
     pose_msg.header.stamp = rclcpp::Time(static_cast<int64_t>((header.timestamp + time_offset) * 1e9));
     
     pose_msg.pose.position.x = px;
@@ -60,16 +60,16 @@ public:
     pose_msg.pose.orientation.w = qw;
 
     geometry_msgs::msg::TwistStamped twist_msg;
-    twist_msg.header.frame_id = "body"; //"odom_nav";
+    twist_msg.header.frame_id = "world"; //"odom_nav";
     twist_msg.header.stamp = pose_msg.header.stamp;
     
     twist_msg.twist.linear.x = vx;    
     twist_msg.twist.linear.y = vz;
     twist_msg.twist.linear.z = vy;
 
-    twist_msg.twist.angular.x = rx;
-    twist_msg.twist.angular.y = rz;
-    twist_msg.twist.angular.z = ry;
+    twist_msg.twist.angular.x = -rx;
+    twist_msg.twist.angular.y = -rz;
+    twist_msg.twist.angular.z = -ry;
 
     pose_publishers_[header.name]->publish(pose_msg);
     twist_publishers_[header.name]->publish(twist_msg);

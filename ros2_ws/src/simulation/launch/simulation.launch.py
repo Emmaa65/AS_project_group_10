@@ -51,6 +51,13 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Include waypoint mission (trajectory planning and sampling)
+    waypoint_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("basic_waypoint_pkg"), "launch", "waypoint_mission.launch.py"])
+        ),
+    )
+
     # Nodes
     simulation_node = Node(
         package="simulation",
@@ -101,50 +108,57 @@ def generate_launch_description():
         executable="controller_node",
         name="controller_node",
         output="screen",
+        parameters=[
+            PathJoinSubstitution([FindPackageShare("controller_pkg"), "config", "controller_params.yaml"])
+        ],
+        remappings=[
+
+            ("current_state", "current_state_est"),   # From state estimator
+        ],
     )
 
-    # Static TF publishers (ROS2 CLI style args; verify for your ROS2 distro)
+    # Static TF publishers (ROS2 Jazzy compatible format)
     static_tf_nodes = [
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="sim_true_body",
-            arguments=["0", "0", "0", "0", "0", "0", "/Quadrotor/TrueState", "/true_body"],
+            arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/Quadrotor/TrueState", "--child-frame-id", "/true_body"],
             output="screen",
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="sim_rgb_camera",
-            arguments=["0", "-0.05", "0", "0", "0", "0", "/camera", "/Quadrotor/RGBCameraLeft"],
+            arguments=["--x", "0", "--y", "-0.05", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/camera", "--child-frame-id", "/Quadrotor/RGBCameraLeft"],
             output="screen",
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="sim_depth_camera",
-            arguments=["0", "0", "0", "0", "0", "0", "/depth_camera", "/Quadrotor/DepthCamera"],
+            arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/depth_camera", "--child-frame-id", "/Quadrotor/DepthCamera"],
             output="screen",
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="sim_right_camera",
-            arguments=["0", "0.05", "0", "0", "0", "0", "/camera", "/Quadrotor/RGBCameraRight"],
+            arguments=["--x", "0", "--y", "0.05", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/camera", "--child-frame-id", "/Quadrotor/RGBCameraRight"],
             output="screen",
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="camera_to_body",
-            arguments=["0", "0", "0", "0", "0", "0", "/true_body", "/camera"],
+            arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/true_body", "--child-frame-id", "/camera"],
             output="screen",
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="depth_camera_to_body",
-            arguments=["0", "0", "0", "0", "0", "0", "/true_body", "/depth_camera"],
+            arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/true_body", "--child-frame-id", "/depth_camera"],
             output="screen",
         ),
     ]
@@ -153,6 +167,7 @@ def generate_launch_description():
         declared_args
         + [
             unity_launch,
+            waypoint_launch,
             simulation_node,
             state_estimate_corruptor,
             state_estimate_corruptor_disabled,
