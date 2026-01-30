@@ -124,7 +124,7 @@ bool BasicPlanner::planTrajectory(
 
     
     
-  RCLCPP_INFO(node_->get_logger(), "Added %zu intermediate waypoints for two loops", 
+  RCLCPP_INFO(node_->get_logger(), "Added %zu intermediate waypoints to the entrance of the cave", 
               vertices.size() - 1);
   // ~~~~ end solution
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
