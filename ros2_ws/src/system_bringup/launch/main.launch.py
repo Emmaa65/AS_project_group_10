@@ -17,6 +17,7 @@ def generate_launch_description():
     enable_rviz = LaunchConfiguration("enable_rviz")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
+    enable_octomap = LaunchConfiguration("enable_octomap")
     
     right_image_topic = LaunchConfiguration("right_image_topic")
     right_info_topic = LaunchConfiguration("right_info_topic")
@@ -56,6 +57,11 @@ def generate_launch_description():
             "enable_waypoints",
             default_value="true",
             description="Launch waypoint mission nodes"
+        ),
+        DeclareLaunchArgument(
+            "enable_octomap",
+            default_value="true",
+            description="Build 3D OctoMap from pointcloud"
         ),
         DeclareLaunchArgument(
             "right_image_topic", 
@@ -132,6 +138,22 @@ def generate_launch_description():
         condition=IfCondition(enable_perception),
     )
 
+    octomap_node = Node(
+        package="octomap_server",
+        executable="octomap_server_node",
+        name="octomap_server",
+        output="screen",
+        remappings=[
+            ("cloud_in", "/camera/pointcloud"),
+        ],
+        parameters=[
+            {"resolution": 0.1},
+            {"frame_id": "world"},
+            {"sensor_model/max_range": 15.0},
+        ],
+        condition=IfCondition(enable_octomap),
+    )
+
     controller_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -143,16 +165,16 @@ def generate_launch_description():
         condition=IfCondition(enable_controller),
     )
 
-    waypoint_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                FindPackageShare("basic_waypoint_pkg"),
-                "launch",
-                "waypoint_mission.launch.py"
-            ])
-        ),
-        condition=IfCondition(enable_waypoints),
-    )
+    # waypoint_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         PathJoinSubstitution([
+    #             FindPackageShare("basic_waypoint_pkg"),
+    #             "launch",
+    #             "waypoint_mission.launch.py"
+    #         ])
+    #     ),
+    #     condition=IfCondition(enable_waypoints),
+    # )
 
     # RViz node
     rviz_node = Node(
@@ -174,8 +196,9 @@ def generate_launch_description():
             simulation_launch,
             perception_launch,
             controller_launch,
-            waypoint_launch,
+            # waypoint_launch,
             depth_to_pointcloud_node,
+            octomap_node,
             rviz_node,
         ]
     )

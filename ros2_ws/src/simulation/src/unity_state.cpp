@@ -54,7 +54,7 @@ public:
       nav_msgs::msg::Odometry state_msg;
       state_msg.header.stamp = this->get_clock()->now();
       state_msg.header.frame_id = "world";
-      state_msg.child_frame_id = "av";
+      state_msg.child_frame_id = "Quadrotor/TrueState";
 
       // position (x, z, y)
       state_msg.pose.pose.position.x = begin[0];
@@ -83,7 +83,7 @@ public:
       geometry_msgs::msg::TransformStamped tf_msg;
       tf_msg.header.stamp = state_msg.header.stamp;
       tf_msg.header.frame_id = state_msg.header.frame_id; // "world"
-      tf_msg.child_frame_id  = state_msg.child_frame_id;  // "av"
+      tf_msg.child_frame_id  = state_msg.child_frame_id;  // "Quadrotor/TrueState"
       tf_msg.transform.translation.x = state_msg.pose.pose.position.x;
       tf_msg.transform.translation.y = state_msg.pose.pose.position.y;
       tf_msg.transform.translation.z = state_msg.pose.pose.position.z;
