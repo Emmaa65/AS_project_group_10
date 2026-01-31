@@ -5,21 +5,6 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='depth_image_proc',
-            executable='point_cloud_xyz_node',
-            name='depth_to_pointcloud',
-            output='screen',
-            remappings=[
-                ('image_rect', '/realsense/depth/image'),
-                ('camera_info', '/realsense/depth/camera_info'),
-                ('points', '/camera/pointcloud')
-            ],
-            parameters=[{
-                'queue_size': 10
-            }]
-        ),
-        
-        Node(
             package='perception_pkg',
             executable='pointcloud_to_occupancy_grid_node',
             name='pointcloud_to_grid',
