@@ -161,6 +161,20 @@ def generate_launch_description():
             arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/true_body", "--child-frame-id", "/depth_camera"],
             output="screen",
         ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="sensors_depth_camera",
+            arguments=["0", "0", "0", "0", "0", "0", "/Quadrotor/DepthCamera", "/Quadrotor/Sensors/DepthCamera"],
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="world_to_true_state",
+            arguments=["0", "0", "0", "0", "0", "0", "/world", "/Quadrotor/TrueState"],
+            output="screen",
+        ),
     ]
 
     return LaunchDescription(
