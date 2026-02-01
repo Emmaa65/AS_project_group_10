@@ -34,6 +34,8 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+find_package(tf2_sensor_msgs REQUIRED)
+
 # --- External projects ------------
 include(ExternalProject)
 include(GNUInstallDirs)  # gives CMAKE_INSTALL_{BINDIR,LIBDIR,…}

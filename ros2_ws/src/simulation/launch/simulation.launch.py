@@ -51,12 +51,6 @@ def generate_launch_description():
         }.items(),
     )
 
-    # Include waypoint mission (trajectory planning and sampling)
-    waypoint_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([FindPackageShare("basic_waypoint_pkg"), "launch", "waypoint_mission.launch.py"])
-        ),
-    )
 
     # Nodes
     simulation_node = Node(
@@ -103,19 +97,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    controller_node = Node(
-        package="controller_pkg",
-        executable="controller_node",
-        name="controller_node",
-        output="screen",
-        parameters=[
-            PathJoinSubstitution([FindPackageShare("controller_pkg"), "config", "controller_params.yaml"])
-        ],
-        remappings=[
-
-            ("current_state", "current_state_est"),   # From state estimator
-        ],
-    )
 
     # Static TF publishers (ROS2 Jazzy compatible format)
     static_tf_nodes = [
@@ -161,18 +142,30 @@ def generate_launch_description():
             arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "/true_body", "--child-frame-id", "/depth_camera"],
             output="screen",
         ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="sensors_depth_camera",
+            arguments=["0", "0", "0", "0", "0", "0", "/Quadrotor/DepthCamera", "/Quadrotor/Sensors/DepthCamera"],
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="world_to_true_state",
+            arguments=["0", "0", "0", "0", "0", "0", "/world", "/Quadrotor/TrueState"],
+            output="screen",
+        ),
     ]
 
     return LaunchDescription(
         declared_args
         + [
             unity_launch,
-            waypoint_launch,
             simulation_node,
             state_estimate_corruptor,
             state_estimate_corruptor_disabled,
             w_to_unity,
-            controller_node,
             *static_tf_nodes,
         ]
     )

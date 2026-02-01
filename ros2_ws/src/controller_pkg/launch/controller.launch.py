@@ -23,6 +23,9 @@ def generate_launch_description():
         name='controller_node',
         output='screen',
         parameters=[LaunchConfiguration('config_file')],
+        remappings=[
+            ('current_state', 'current_state_est'),
+        ],
         # emulate "clear_params='true'" by forcing parameter override behavior
         emulate_tty=True
     )
