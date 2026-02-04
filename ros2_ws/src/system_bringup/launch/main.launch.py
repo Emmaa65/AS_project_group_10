@@ -15,6 +15,7 @@ def generate_launch_description():
     corrupt_state_estimate = LaunchConfiguration("corrupt_state_estimate")
     enable_perception = LaunchConfiguration("enable_perception")
     enable_rviz = LaunchConfiguration("enable_rviz")
+    enable_octomap = LaunchConfiguration("enable_octomap")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
     
@@ -46,6 +47,11 @@ def generate_launch_description():
             "enable_rviz", 
             default_value="true",
             description="Launch RViz for visualization"
+        ),
+        DeclareLaunchArgument(
+            "enable_octomap",
+            default_value="true",
+            description="Launch OctoMap server"
         ),
         DeclareLaunchArgument(
             "enable_controller",
@@ -132,6 +138,22 @@ def generate_launch_description():
         condition=IfCondition(enable_perception),
     )
 
+    octomap_server_node = Node(
+        package="octomap_server",
+        executable="octomap_server_node",
+        name="octomap_server",
+        output="screen",
+        parameters=[
+            {"frame_id": "world"},
+            {"resolution": 0.05},
+            {"sensor_model.max_range": 5.0},
+        ],
+        remappings=[
+            ("cloud_in", "/camera/pointcloud"),
+        ],
+        condition=IfCondition(enable_octomap),
+    )
+
     controller_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -176,6 +198,7 @@ def generate_launch_description():
             controller_launch,
             waypoint_launch,
             depth_to_pointcloud_node,
+            octomap_server_node,
             rviz_node,
         ]
     )
