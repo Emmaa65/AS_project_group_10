@@ -239,6 +239,10 @@ public:
       // ~~~~ begin solution
       //
       yawd = tf2::getYaw(des_state_msg->transforms[0].rotation);
+      // Rotate by 180° to align the drone's forward direction
+      yawd = yawd + M_PI;
+      while (yawd > M_PI) yawd -= 2.0*M_PI;
+      while (yawd <= -M_PI) yawd += 2.0*M_PI;
       // ~~~~ end solution
       
       desired_received_ = true;
