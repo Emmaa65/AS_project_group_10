@@ -77,7 +77,7 @@ public:
     geometry_msgs::msg::TransformStamped tf;
     tf.header.stamp = pose_msg.header.stamp;
     tf.header.frame_id = "world";
-    tf.child_frame_id = "true_body";
+    tf.child_frame_id = "Quadrotor/TrueState";
 
     tf.transform.translation.x = pose_msg.pose.position.x;
     tf.transform.translation.y = pose_msg.pose.position.y;

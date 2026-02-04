@@ -17,7 +17,7 @@ protected:
     img_msg->width = img.width;
     img_msg->height = img.height;
     img_msg->encoding = "16UC1";
-    img_msg->header.frame_id = frame;
+    img_msg->header.frame_id = frame+ "_optical";
     img_msg->step = img.width * 2;
 
     const int pixels = img.width * img.height;
