@@ -152,6 +152,13 @@ def generate_launch_description():
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
+            name="sensors_depth_camera_optical",
+            arguments=["0", "0", "0", "-1.5708", "0", "-1.5708", "Quadrotor/Sensors/DepthCamera", "Quadrotor/Sensors/DepthCamera_optical"],
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
             name="world_to_true_state",
             arguments=["0", "0", "0", "0", "0", "0", "world", "Quadrotor/TrueState"],
             output="screen",
