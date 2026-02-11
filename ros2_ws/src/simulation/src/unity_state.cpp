@@ -82,8 +82,8 @@ public:
 #if TFOUTPUT
       geometry_msgs::msg::TransformStamped tf_msg;
       tf_msg.header.stamp = state_msg.header.stamp;
-      tf_msg.header.frame_id = "world"
-      tf_msg.child_frame_id  = "Quadrotor/TrueState";  // "av"
+      tf_msg.header.frame_id = "world";
+      tf_msg.child_frame_id  = "Quadrotor/TrueState";
       tf_msg.transform.translation.x = state_msg.pose.pose.position.x;
       tf_msg.transform.translation.y = state_msg.pose.pose.position.y;
       tf_msg.transform.translation.z = state_msg.pose.pose.position.z;
