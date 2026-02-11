@@ -213,6 +213,8 @@ OctomapServer::OctomapServer(const rclcpp::NodeOptions & node_options)
     compress_map_desc.description = "Compresses the map losslessly";
     compress_map_ = declare_parameter("compress_map", true, compress_map_desc);
   }
+  save_on_shutdown_ = declare_parameter("save_on_shutdown", false);
+  save_map_path_ = declare_parameter("save_map_path", "");
   {
     rcl_interfaces::msg::ParameterDescriptor incremental_2D_projection_desc;
     incremental_2D_projection_desc.description = "Incremental 2D projection";
@@ -337,6 +339,14 @@ OctomapServer::OctomapServer(const rclcpp::NodeOptions & node_options)
   if (!openFile(filename)) {
     RCLCPP_WARN(get_logger(), "Could not open file %s", filename.c_str());
   }
+
+  if (save_on_shutdown_) {
+    if (save_map_path_.empty()) {
+      RCLCPP_WARN(get_logger(), "save_on_shutdown is true but save_map_path is empty");
+    } else {
+      rclcpp::on_shutdown([this]() { this->saveMapToFile(); });
+    }
+  }
 }
 
 bool OctomapServer::openFile(const std::string & filename)
@@ -395,6 +405,37 @@ bool OctomapServer::openFile(const std::string & filename)
   publishAll(now());
 
   return true;
+}
+
+void OctomapServer::saveMapToFile() const
+{
+  if (!octree_) {
+    RCLCPP_WARN(get_logger(), "Octomap not initialized, cannot save");
+    return;
+  }
+  if (save_map_path_.length() < 4) {
+    RCLCPP_ERROR_STREAM(get_logger(), "Invalid save_map_path: " << save_map_path_);
+    return;
+  }
+
+  const std::string suffix = save_map_path_.substr(save_map_path_.length() - 3, 3);
+  if (suffix == ".bt") {
+    if (!octree_->writeBinary(save_map_path_)) {
+      RCLCPP_ERROR(get_logger(), "Error writing binary map to %s", save_map_path_.c_str());
+      return;
+    }
+  } else if (suffix == ".ot") {
+    if (!octree_->write(save_map_path_)) {
+      RCLCPP_ERROR(get_logger(), "Error writing full map to %s", save_map_path_.c_str());
+      return;
+    }
+  } else {
+    RCLCPP_ERROR(get_logger(), "Unknown file extension for %s (use .bt or .ot)",
+      save_map_path_.c_str());
+    return;
+  }
+
+  RCLCPP_INFO(get_logger(), "Octomap saved to %s", save_map_path_.c_str());
 }
 
 void OctomapServer::insertCloudCallback(const PointCloud2::ConstSharedPtr cloud)

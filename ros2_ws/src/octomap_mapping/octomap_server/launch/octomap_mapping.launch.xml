@@ -7,14 +7,47 @@
   www.ros.org/wiki/octomap_server for details
 -->
 <launch>
+	<!-- core mapping settings -->
+	<arg name="resolution" default="1.0" />
+	<arg name="frame_id" default="odom_combined" />
+	<arg name="max_range" default="5.0" />
+
+	<!-- point cloud limits (increase to consider more environment) -->
+	<arg name="point_cloud_min_z" default="-100.0" />
+	<arg name="point_cloud_max_z" default="100.0" />
+
+	<!-- 2D occupancy projection limits -->
+	<arg name="occupancy_min_z" default="-100.0" />
+	<arg name="occupancy_max_z" default="100.0" />
+	<arg name="min_x_size" default="0.0" />
+	<arg name="min_y_size" default="0.0" />
+
+	<!-- save octomap on shutdown -->
+	<arg name="save_on_shutdown" default="false" />
+	<arg name="save_map_path" default="$(env OCTOMAP_SAVE_PATH $(env HOME)/octomap.bt)" />
+
 	<node pkg="octomap_server" exec="octomap_server_node" name="octomap_server">
-		<param name="resolution" value="1.0" />
+		<param name="resolution" value="$(var resolution)" />
 
 		<!-- fixed map frame (set to 'map' if SLAM or localization running!) -->
-		<param name="frame_id" value="odom_combined" />
+		<param name="frame_id" value="$(var frame_id)" />
 
 		<!-- maximum range to integrate (speedup!) -->
-		<param name="sensor_model.max_range" value="5.0" />
+		<param name="sensor_model.max_range" value="$(var max_range)" />
+
+		<!-- point cloud limits -->
+		<param name="point_cloud_min_z" value="$(var point_cloud_min_z)" />
+		<param name="point_cloud_max_z" value="$(var point_cloud_max_z)" />
+
+		<!-- 2D occupancy projection limits -->
+		<param name="occupancy_min_z" value="$(var occupancy_min_z)" />
+		<param name="occupancy_max_z" value="$(var occupancy_max_z)" />
+		<param name="min_x_size" value="$(var min_x_size)" />
+		<param name="min_y_size" value="$(var min_y_size)" />
+
+		<!-- save octomap on shutdown -->
+		<param name="save_on_shutdown" value="$(var save_on_shutdown)" />
+		<param name="save_map_path" value="$(var save_map_path)" />
 
 		<!-- data source to integrate (PointCloud2) -->
 		<remap from="cloud_in" to="/narrow_stereo/points_filtered2" />

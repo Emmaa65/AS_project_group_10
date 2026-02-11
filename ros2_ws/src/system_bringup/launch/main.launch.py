@@ -18,6 +18,9 @@ def generate_launch_description():
     enable_octomap = LaunchConfiguration("enable_octomap")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
+
+    save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
+    octomap_save_path = LaunchConfiguration("octomap_save_path")
     
     right_image_topic = LaunchConfiguration("right_image_topic")
     right_info_topic = LaunchConfiguration("right_info_topic")
@@ -62,6 +65,16 @@ def generate_launch_description():
             "enable_waypoints",
             default_value="true",
             description="Launch waypoint mission nodes"
+        ),
+        DeclareLaunchArgument(
+            "save_octomap_on_shutdown",
+            default_value="true",
+            description="Save OctoMap to file when shutting down"
+        ),
+        DeclareLaunchArgument(
+            "octomap_save_path",
+            default_value=["$", "HOME", "/octomap.bt"],
+            description="Path to save OctoMap file (.bt or .ot)"
         ),
         DeclareLaunchArgument(
             "right_image_topic", 
@@ -147,6 +160,8 @@ def generate_launch_description():
             {"frame_id": "world"},
             {"resolution": 0.05},
             {"sensor_model.max_range": 5.0},
+            {"save_on_shutdown": save_octomap_on_shutdown},
+            {"save_map_path": octomap_save_path},
         ],
         remappings=[
             ("cloud_in", "/camera/pointcloud"),

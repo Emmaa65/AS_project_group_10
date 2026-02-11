@@ -295,6 +295,9 @@ protected:
 
   bool compress_map_;
 
+  bool save_on_shutdown_;
+  std::string save_map_path_;
+
   bool init_config_;
 
   // downprojected 2D map:
@@ -306,6 +309,8 @@ protected:
   unsigned multires_2d_scale_;
   bool project_complete_map_;
   bool use_colored_map_;
+
+  void saveMapToFile() const;
 };
 }  // namespace octomap_server
 
