@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -73,7 +73,10 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "octomap_save_path",
-            default_value=["$", "HOME", "/octomap.bt"],
+            default_value=PathJoinSubstitution([
+                EnvironmentVariable("HOME"),
+                "octomap.bt",
+            ]),
             description="Path to save OctoMap file (.bt or .ot)"
         ),
         DeclareLaunchArgument(
@@ -158,8 +161,8 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {"frame_id": "world"},
-            {"resolution": 0.05},
-            {"sensor_model.max_range": 5.0},
+            {"resolution": 1.0},
+            {"sensor_model.max_range": 50.0},
             {"save_on_shutdown": save_octomap_on_shutdown},
             {"save_map_path": octomap_save_path},
         ],
