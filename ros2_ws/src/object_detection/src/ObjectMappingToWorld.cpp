@@ -89,7 +89,12 @@ public:
             for (int u = 0; u < semantic_cv.cols; ++u) {
 
                 uint8_t semantic_value = semantic_cv.at<uint8_t>(v, u);
-                if (semantic_value == 0) continue;  // Skip background
+                if (semantic_value == 0) {
+                    RCLCPP_INFO(this->get_logger(), "semantic_value at (u,v) = (%d,%d)", u,v);
+                    continue;
+                  }  // Skip background
+                
+                RCLCPP_INFO(this->get_logger(), "semantic_vale nonzero: %d", semantic_value);
 
                 uint16_t z_mm = depth_cv.at<uint16_t>(v, u);
                 if (z_mm == 0) continue;  // Skip invalid/zero depth
@@ -133,27 +138,9 @@ public:
             *iter_z = pt.z; ++iter_z;
         }
 
-        //apply transformation that they are presented in world frame 
-        if (tf_buffer_->canTransform("world", "Quadrotor/Sensors/DepthCamera_optical", 
-                             tf2::timeFromSec(depth->header.stamp.sec) + 
-                             tf2::durationFromSec(depth->header.stamp.nanosec / 1e9),
-                             tf2::durationFromSec(0.5))) {
-            
-                geometry_msgs::msg::TransformStamped transform = 
-                    tf_buffer_->lookupTransform("world", "Quadrotor/Sensors/DepthCamera_optical", 
-                                            tf2::timeFromSec(depth->header.stamp.sec) + 
-                                            tf2::durationFromSec(depth->header.stamp.nanosec / 1e9));
-                
-                // Apply transform
-                sensor_msgs::msg::PointCloud2 cloud_transformed;
-                tf2::doTransform(cloud_msg, cloud_transformed, transform);
-                
-                point_cloud2_pub_->publish(cloud_transformed);
-         
-        } else {
-            RCLCPP_WARN(this->get_logger(), "Could not transform: timeout waiting for transform");
-            point_cloud2_pub_->publish(cloud_msg);
-        }
+        //try w.o transformation first!
+        point_cloud2_pub_->publish(cloud_msg);
+        
   
     }
 
