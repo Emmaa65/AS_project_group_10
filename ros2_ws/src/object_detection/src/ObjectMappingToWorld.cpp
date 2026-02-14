@@ -1,7 +1,10 @@
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
-#include "sensor_msgs/msg/point_cloud2.hpp"
+//#include "sensor_msgs/msg/point_cloud2.hpp"
+#include <cstdint>
 #include <message_filters/subscriber.h>
+#include <opencv2/core/matx.hpp>
+#include <opencv2/core/types.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <opencv2/core.hpp>
@@ -16,6 +19,9 @@
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
 
 //#include <image_geometry/pinhole_camera_model.hpp>
 //#include <sensor_msgs/distortion_models.hpp> //mabye not needed
@@ -38,7 +44,7 @@ public:
             std::placeholders::_3));
 
         //publisher  
-        point_cloud2_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("object_point_cloud", 10); 
+        point_3d_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("object_point_3d", 10); 
 
         //transformation
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -49,7 +55,7 @@ public:
         RCLCPP_INFO(this->get_logger(), "Subscribing to semantic image: %s", "semantic_image");
         RCLCPP_INFO(this->get_logger(), "Subscribing to depth image: %s", "depth_image");
         RCLCPP_INFO(this->get_logger(), "Subscribing to semantic camera info: %s", "semantic_camera_info");
-        RCLCPP_INFO(this->get_logger(), "Publishing point cloud to: %s", point_cloud2_pub_->get_topic_name());
+        RCLCPP_INFO(this->get_logger(), "Publishing center point 3d to: %s", point_3d_pub_->get_topic_name());
        
     }
 
@@ -72,6 +78,9 @@ public:
         // Convert ROS images to cv::Mat
         cv::Mat semantic_cv = cv_bridge::toCvShare(semantic, "rgb8")->image;
         cv::Mat depth_cv = cv_bridge::toCvShare(depth, "16UC1")->image;
+
+        //laterns are (255,235,4)
+        cv::Vec3b laterns(255, 235, 4);
         
         // Get camera intrinsics of semantic camera
         double sem_fx = semantic_info->k[0];  // k is a 9-element array (3x3 K matrix)
@@ -85,16 +94,17 @@ public:
         // Iterate through semantic image and extract 3D points
         std::vector<cv::Point3d> points_3d;
         
+
         for (int v = 0; v < semantic_cv.rows; ++v) {
             for (int u = 0; u < semantic_cv.cols; ++u) {
 
-                uint8_t semantic_value = semantic_cv.at<uint8_t>(v, u);
-                if (semantic_value == 0) {
-                    RCLCPP_INFO(this->get_logger(), "semantic_value at (u,v) = (%d,%d)", u,v);
+                cv::Vec3b pixel = semantic_cv.at<cv::Vec3b>(v, u);
+                if (pixel != laterns) {
+                    //RCLCPP_INFO(this->get_logger(), "semantic_value at (u,v) = (%d,%d)", u,v);
                     continue;
                   }  // Skip background
                 
-                RCLCPP_INFO(this->get_logger(), "semantic_vale nonzero: %d", semantic_value);
+                //RCLCPP_INFO(this->get_logger(), "RGB: R=%d, G=%d, B=%d", (int)pixel[0], (int)pixel[1], (int)pixel[2]);
 
                 uint16_t z_mm = depth_cv.at<uint16_t>(v, u);
                 if (z_mm == 0) continue;  // Skip invalid/zero depth
@@ -104,44 +114,39 @@ public:
                 double y = (v - sem_cy) * z / sem_fy;
                 
                 points_3d.push_back(cv::Point3d(x, y, z));
+                
             }
         }
 
-        if (!points_3d.empty()) {
-        RCLCPP_INFO(this->get_logger(), "First point: x=%.3f, y=%.3f, z=%.3f", 
-                points_3d[0].x, points_3d[0].y, points_3d[0].z);
-        }
 
-        //publish the cv::Point3d -> transform to message 
-        sensor_msgs::msg::PointCloud2 cloud_msg;
-        cloud_msg.header.stamp = depth->header.stamp; 
-        cloud_msg.header.frame_id = depth->header.frame_id; //should be /Quadrotor/Sensors/SemanticCamera
-        // I need to convert to world frame!! 
-        cloud_msg.height = 1;
-        cloud_msg.width = points_3d.size();
-        cloud_msg.is_dense = false;
+        //compute mean to get center of latern:
+        cv::Point3d points_3d_mean = this->compute_mean(points_3d);
+        //publish this as geometry_msgs::msg::PointStamped
+        //RCLCPP_INFO(this->get_logger(), "Mean point: x=%.3f, y=%.3f, z=%.3f", points_3d_mean.x, points_3d_mean.y, points_3d_mean.z);
         
-        //populate cloud 
-        sensor_msgs::PointCloud2Modifier modifier(cloud_msg);
-        modifier.setPointCloud2Fields(3, "x", 1, sensor_msgs::msg::PointField::FLOAT32,
-                                      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
-                                      "z", 1, sensor_msgs::msg::PointField::FLOAT32);
-        modifier.resize(points_3d.size());
+        geometry_msgs::msg::PointStamped point_msg;
+        point_msg.header.frame_id = semantic->header.frame_id;
+        point_msg.point.x = points_3d_mean.x;
+        point_msg.point.y = points_3d_mean.y; 
+        point_msg.point.z = points_3d_mean.z; 
+        point_msg.header.stamp = this->now();
 
-        sensor_msgs::PointCloud2Iterator<float> iter_x(cloud_msg, "x");
-        sensor_msgs::PointCloud2Iterator<float> iter_y(cloud_msg, "y");
-        sensor_msgs::PointCloud2Iterator<float> iter_z(cloud_msg, "z");
+        //transform to world coordinate
+         try {
+            point_msg = tf_buffer_->transform(point_msg, "world");
+            RCLCPP_INFO(this->get_logger(), 
+                "Published point in world frame: (%.3f, %.3f, %.3f)",
+                point_msg.point.x, point_msg.point.y, point_msg.point.z);
 
-        for (const auto& pt : points_3d) {
-            *iter_x = pt.x; ++iter_x;
-            *iter_y = pt.y; ++iter_y;
-            *iter_z = pt.z; ++iter_z;
+               // Now it's in world frame, publish it
+            point_msg.header.frame_id = "world"; 
+            point_3d_pub_->publish(point_msg); 
+                
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "TF transform failed, point still in %s: %s",point_msg.header.frame_id.c_str(), e.what());
+            point_3d_pub_->publish(point_msg);
         }
-
-        //try w.o transformation first!
-        point_cloud2_pub_->publish(cloud_msg);
-        
-  
+    
     }
 
   
@@ -161,11 +166,28 @@ private:
     std::shared_ptr<message_filters::Synchronizer<MySyncPolicy>> sync_;
 
     //Publisher: publishes the 3d Points of object (can be then later converted to voxel)
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud2_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr point_3d_pub_;
 
     //transformations
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    //helper functions
+    cv::Point3d compute_mean(const std::vector<cv::Point3d>& points) {
+    if (points.empty()) {
+        return cv::Point3d(0, 0, 0);
+    }
+    
+    double sum_x = 0, sum_y = 0, sum_z = 0;
+    for (const auto& p : points) {
+        sum_x += p.x;
+        sum_y += p.y;
+        sum_z += p.z;
+    }
+    
+    int n = points.size();
+    return cv::Point3d(sum_x / n, sum_y / n, sum_z / n);
+}
    
 };
 
