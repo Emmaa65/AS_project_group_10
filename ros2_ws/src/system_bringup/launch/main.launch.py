@@ -163,7 +163,7 @@ def generate_launch_description():
         arguments=["-d", PathJoinSubstitution([
             FindPackageShare("system_bringup"),
             "config",
-            "default.rviz"
+            "default_object.rviz"
         ])],
         condition=IfCondition(enable_rviz),
     )
