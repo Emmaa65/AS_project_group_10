@@ -124,8 +124,11 @@ public:
         points_3d = this->camera_to_world(points_3d, semantic->header.stamp);
 
         //mean of points:
-        cv::Point3d mean = this->compute_mean(points_3d);
-         RCLCPP_INFO(this->get_logger(), "Mean point: x=%.3f, y=%.3f, z=%.3f", mean.x, mean.y, mean.z); 
+         cv::Point3d mean = this->compute_mean(points_3d);
+        if(!(mean.x == 0 && mean.y == 0 && mean.z == 0)){
+            RCLCPP_INFO(this->get_logger(), "Mean point: x=%.3f, y=%.3f, z=%.3f", mean.x, mean.y, mean.z); 
+        }
+        
          //publish the cv::Point3d -> transform to message 
         sensor_msgs::msg::PointCloud2 cloud_msg;
         cloud_msg.header.stamp = depth->header.stamp; 
