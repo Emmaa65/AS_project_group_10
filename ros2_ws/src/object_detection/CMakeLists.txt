@@ -24,7 +24,10 @@ find_package(tf2_sensor_msgs REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 
-add_executable(ObjectMappingToWorld src/ObjectMappingToWorld.cpp)
+add_executable(ObjectMappingToWorld 
+                src/ObjectMappingToWorld.cpp
+                src/ObjectManager.cpp
+                )
 ament_target_dependencies(ObjectMappingToWorld 
   rclcpp 
   sensor_msgs

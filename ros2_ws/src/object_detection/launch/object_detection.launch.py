@@ -5,19 +5,19 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    # Camera to body (adjust based on your camera position on the drone)
+    # Camera to Quadrotor/TrueState (adjust based on your camera position on the drone)
     camera_to_body = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=[
             '--x', '0.0',     
             '--y', '0.0',
-            '--z', '0.1',   #distance body center to camera
+            '--z', '0.1',   #distance Quadrotor/TrueState center to camera
             '--roll', '0.0',
             '--pitch', '0.0',
             '--yaw', '0.0',
-            '--frame-id', 'body',
-            '--child-frame-id', 'Quadrotor/Sensors/SemanticCamera'
+            '--frame-id', 'Quadrotor/TrueState',
+            '--child-frame-id', 'Quadrotor/Sensors/DepthCamera_optical'
         ]
     )
     
