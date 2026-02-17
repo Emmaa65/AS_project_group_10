@@ -45,7 +45,6 @@ public:
             std::placeholders::_3));
 
         //publisher  
-        //point_3d_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("object_point_3d", 10); 
         point_cloud2_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("object_point_cloud", 10);
 
         //transformation
@@ -61,17 +60,17 @@ public:
        
     }
 
-    //callback for all 4 topics at once
+    //callback for all 3 topics at once
     void callback(const sensor_msgs::msg::Image::ConstSharedPtr& semantic,
                   const sensor_msgs::msg::Image::ConstSharedPtr& depth,
                   const sensor_msgs::msg::CameraInfo::ConstSharedPtr& semantic_info) {
-        // Process all 4 messages together
+        // Process all 3 messages together
         convertTo3D(semantic, depth, semantic_info);
     }
 
 
 
-    //doing the math with all 4 messages from the same time
+    //doing the math with all 3 messages from the same time
     void convertTo3D(const sensor_msgs::msg::Image::ConstSharedPtr& semantic,
                      const sensor_msgs::msg::Image::ConstSharedPtr& depth,
                      const sensor_msgs::msg::CameraInfo::ConstSharedPtr& semantic_info) {
@@ -118,12 +117,6 @@ public:
         //update objectManager
         object_manager_.process_detection(points_3d, this->get_logger());
         object_manager_.print_all_objects(this->get_logger());
-
-        //mean of points:
-         cv::Point3d mean = this->compute_mean(points_3d);
-        if(!(mean.x == 0 && mean.y == 0 && mean.z == 0)){
-            RCLCPP_INFO(this->get_logger(), "Mean point: x=%.3f, y=%.3f, z=%.3f", mean.x, mean.y, mean.z); 
-        }
         
         sensor_msgs::msg::PointCloud2 cloud_msg = this->transformToPointCloud(points_3d, semantic);
         point_cloud2_pub_->publish(cloud_msg);
@@ -153,7 +146,7 @@ private:
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     //ObjectManager
-    ObjectManager object_manager_{20.0};
+    ObjectManager object_manager_{5.0};
 
     //--------------- helper functions --------------------------------------------
 
@@ -186,24 +179,6 @@ private:
         return cloud_msg;
      }
 
-
-    //compute mean of points
-    cv::Point3d compute_mean(const std::vector<cv::Point3d>& points) {
-        if (points.empty()) {
-            return cv::Point3d(0, 0, 0);
-        }
-        
-        double sum_x = 0, sum_y = 0, sum_z = 0;
-        for (const auto& p : points) {
-            sum_x += p.x;
-            sum_y += p.y;
-            sum_z += p.z;
-        }
-        
-        int n = points.size();
-        return cv::Point3d(sum_x / n, sum_y / n, sum_z / n);
-    }
-
     // Transform from camera to world
     std::vector<cv::Point3d> camera_to_world(const std::vector<cv::Point3d>& points_3d, const builtin_interfaces::msg::Time& semantic_stamp)
     {
@@ -234,11 +209,7 @@ private:
                     point_world.point.y,
                     point_world.point.z)
                 );
-
-              
             }
- 
-
         } catch (const tf2::TransformException& e) {
         RCLCPP_ERROR(this->get_logger(), 
             "TF2 Exception: %s", e.what());
@@ -246,9 +217,7 @@ private:
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), 
                 "Transform lookup failed: %s", e.what());
-        }
-        
-        
+        } 
         return points_world;
     }
    
