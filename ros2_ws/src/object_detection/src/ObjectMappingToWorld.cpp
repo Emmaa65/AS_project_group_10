@@ -5,6 +5,7 @@
 #include <message_filters/subscriber.h>
 #include <opencv2/core/matx.hpp>
 #include <opencv2/core/types.hpp>
+#include <rclcpp/logging.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <opencv2/core.hpp>
@@ -91,7 +92,7 @@ public:
         double sem_cy = semantic_info->k[5];
 
         //get camera intrinics of depth camera :not needed since it is not a pixel to unproject but already a real depth
-      
+        RCLCPP_INFO(this->get_logger(), "Camera intrinsics: fx = %f, fy = %f, cx= %f, cy= %f ", sem_fx, sem_fy, sem_cx, sem_cy);
         // Convert pixel (u, v) to 3D point
         // Iterate through semantic image and extract 3D points
         std::vector<cv::Point3d> points_3d;
@@ -240,7 +241,7 @@ private:
             point_stamped.point.z = p.z;
             
             try {
-                auto point_world = tf_buffer_->transform(point_stamped, "world");
+                auto point_world = tf_buffer_->transform(point_stamped, "world", tf2::durationFromSec(1.0)); //wait up to one sec
                 points_world.push_back(cv::Point3d(
                     point_world.point.x,
                     point_world.point.y,
