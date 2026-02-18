@@ -18,6 +18,7 @@ def generate_launch_description():
     enable_octomap = LaunchConfiguration("enable_octomap")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
+    enable_frontier = LaunchConfiguration("enable_frontier")
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
@@ -65,6 +66,11 @@ def generate_launch_description():
             "enable_waypoints",
             default_value="true",
             description="Launch waypoint mission nodes"
+        ),
+        DeclareLaunchArgument(
+            "enable_frontier",
+            default_value="true",
+            description="Launch frontier exploration node from navigation_pkg"
         ),
         DeclareLaunchArgument(
             "save_octomap_on_shutdown",
@@ -218,5 +224,13 @@ def generate_launch_description():
             depth_to_pointcloud_node,
             octomap_server_node,
             rviz_node,
+            # Frontier exploration node
+            Node(
+                package="navigation_pkg",
+                executable="frontier_exploration",
+                name="frontier_exploration",
+                output="screen",
+                condition=IfCondition(enable_frontier),
+            ),
         ]
     )
