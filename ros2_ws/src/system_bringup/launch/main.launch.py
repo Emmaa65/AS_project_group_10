@@ -20,6 +20,7 @@ def generate_launch_description():
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
     trajectory_finish_topic = LaunchConfiguration("trajectory_finish_topic")
+    enable_frontier = LaunchConfiguration("enable_frontier")
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
@@ -74,6 +75,11 @@ def generate_launch_description():
             "trajectory_finish_topic",
             default_value="/trajectory_finished",
             description="Bool topic that signals end of static trajectory"
+        ),
+        DeclareLaunchArgument(
+            "enable_frontier",
+            default_value="true",
+            description="Launch frontier exploration node from navigation_pkg"
         ),
         DeclareLaunchArgument(
             "save_octomap_on_shutdown",
@@ -276,5 +282,13 @@ def generate_launch_description():
             wait_for_trajectory_finish,
             start_cave_stack_on_trajectory_finish,
             rviz_node,
+            # Frontier exploration node
+            Node(
+                package="navigation_pkg",
+                executable="frontier_exploration",
+                name="frontier_exploration",
+                output="screen",
+                condition=IfCondition(enable_frontier),
+            ),
         ]
     )
