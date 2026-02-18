@@ -1,5 +1,9 @@
 **/build/
 **/install/
 **/log/
+<<<<<<< HEAD
 **/.vscode/
 
+=======
+**/.vscode/
+>>>>>>> main
