@@ -1,10 +1,7 @@
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
-//#include "sensor_msgs/msg/point_cloud2.hpp"
 #include <cstdint>
 #include <message_filters/subscriber.h>
-#include <opencv2/core/matx.hpp>
-#include <opencv2/core/types.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -19,13 +16,9 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include "ObjectManager.hpp"
-
-//#include <image_geometry/pinhole_camera_model.hpp>
-//#include <sensor_msgs/distortion_models.hpp> //mabye not needed
 
 class ObjectToWorld : public rclcpp::Node
 {
@@ -146,7 +139,7 @@ private:
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     //ObjectManager
-    ObjectManager object_manager_{5.0};
+    ObjectManager object_manager_{10.0};
 
     //--------------- helper functions --------------------------------------------
 

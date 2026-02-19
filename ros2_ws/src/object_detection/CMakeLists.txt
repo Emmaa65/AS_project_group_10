@@ -18,7 +18,7 @@ find_package(message_filters REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(tf2_sensor_msgs REQUIRED)
+
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -30,8 +30,8 @@ add_executable(ObjectMappingToWorld
                 )
 ament_target_dependencies(ObjectMappingToWorld 
   rclcpp 
-  sensor_msgs
   geometry_msgs
+  sensor_msgs
   image_geometry
   vision_opencv
   cv_bridge 
@@ -39,7 +39,6 @@ ament_target_dependencies(ObjectMappingToWorld
   tf2_ros
   tf2_geometry_msgs
   tf2
-  tf2_sensor_msgs
 )#only for ros packages!
 
 target_link_libraries(ObjectMappingToWorld
