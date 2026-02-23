@@ -1,0 +1,33 @@
+exploration_manager:
+  ros__parameters:
+    # Cave entrance position (must match planner waypoint!)
+    cave_entrance_x: -175.0
+    cave_entrance_y: 10.0
+    cave_entrance_z: 12.0
+    
+    # Tolerance for considering the drone "at" the cave entrance [meters]
+    entrance_reach_tolerance: 1.5
+    
+    # Frontier selection update rate [Hz]
+    frontier_update_rate: 2.0
+    
+    # Distance constraints for frontier selection [meters]
+    min_frontier_distance: 0.5
+    max_frontier_distance: 50.0
+    
+    # Logging level
+    log_level: "INFO"
+
+rrt_path_planner:
+  ros__parameters:
+    # RRT planning parameters
+    max_planning_time: 1.0       # seconds
+    step_size: 0.5               # meters
+    max_iterations: 1000         # iterations
+    
+    # Trajectory generation
+    max_velocity: 0.5            # m/s
+    max_acceleration: 0.3        # m/s²
+    
+    # Logging level
+    log_level: "INFO"
