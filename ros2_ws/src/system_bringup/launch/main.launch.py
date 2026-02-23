@@ -290,5 +290,20 @@ def generate_launch_description():
                 output="screen",
                 condition=IfCondition(enable_frontier),
             ),
+            # Exploration manager and RRT path planner
+            Node(
+                package="ompl_planner_pkg",
+                executable="exploration_manager_node",
+                name="exploration_manager",
+                output="screen",
+                condition=IfCondition(enable_frontier),
+            ),
+            Node(
+                package="ompl_planner_pkg",
+                executable="rrt_path_planner_node",
+                name="rrt_path_planner",
+                output="screen",
+                condition=IfCondition(enable_frontier),
+            ),
         ]
     )
