@@ -1,6 +1,6 @@
 planner:
   ros__parameters:
-    max_v: 10.0 #5 #10
-    max_a: 4.0 #2 #4
+    max_v: 20.0 #5 #10
+    max_a: 8.0 #2 #4
 
     # waypoints: {}

@@ -167,8 +167,8 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {"frame_id": "world"},
-            {"resolution": 1.0},
-            {"sensor_model.max_range": 50.0},
+            {"resolution": 2.0},
+            {"sensor_model.max_range": 75.0},
             {"save_on_shutdown": save_octomap_on_shutdown},
             {"save_map_path": octomap_save_path},
         ],
