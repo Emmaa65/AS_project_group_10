@@ -42,6 +42,7 @@ private:
   std::string exploration_state_ = "INITIALIZATION";
   Eigen::Vector3d current_position_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d target_frontier_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d last_planned_target_ = Eigen::Vector3d::Zero();
   bool has_target_ = false;
   
   // Cave entrance for filtering invalid frontiers
@@ -52,6 +53,9 @@ private:
   double max_planning_time_ = 1.0;
   double step_size_ = 0.5;
   int max_iterations_ = 1000;
+  double max_velocity_ = 10.0;
+  double max_acceleration_ = 2.0;
+  double replan_threshold_ = 2.0; // Only replan if target moves more than this
   
   // Callbacks
   void targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);

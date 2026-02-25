@@ -19,16 +19,22 @@ RRTPathPlanner::RRTPathPlanner()
   
   // Load parameters
   this->declare_parameter("max_planning_time", 1.0);
-  this->declare_parameter("step_size", 0.5);
+  this->declare_parameter("step_size", 3.0);  // Larger steps = fewer waypoints
   this->declare_parameter("max_iterations", 1000);
+  this->declare_parameter("max_velocity", 10.0);  // Increased from 0.5
+  this->declare_parameter("max_acceleration", 2.0);  // Increased from 0.3
+  this->declare_parameter("replan_threshold", 20.0);  // Meters
   this->declare_parameter("cave_entrance_x", -330.0);
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
-  this->declare_parameter("min_frontier_z", 13.5); // Keep above cave floor
+  this->declare_parameter("min_frontier_z", -13.5); // Keep above cave floor
   
   max_planning_time_ = this->get_parameter("max_planning_time").as_double();
   step_size_ = this->get_parameter("step_size").as_double();
   max_iterations_ = this->get_parameter("max_iterations").as_int();
+  max_velocity_ = this->get_parameter("max_velocity").as_double();
+  max_acceleration_ = this->get_parameter("max_acceleration").as_double();
+  replan_threshold_ = this->get_parameter("replan_threshold").as_double();
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
   cave_entrance_[2] = this->get_parameter("cave_entrance_z").as_double();
@@ -65,8 +71,8 @@ RRTPathPlanner::RRTPathPlanner()
     std::bind(&RRTPathPlanner::planPath, this));
   
   RCLCPP_INFO(this->get_logger(),
-    "RRT Path Planner initialized (step_size: %.2f m, max_iter: %d)",
-    step_size_, max_iterations_);
+    "RRT Path Planner initialized (step_size: %.2f m, max_v: %.2f m/s, max_a: %.2f m/s²)",
+    step_size_, max_velocity_, max_acceleration_);
 }
 
 void RRTPathPlanner::targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg) {
@@ -76,8 +82,8 @@ void RRTPathPlanner::targetFrontierCallback(const geometry_msgs::msg::PointStamp
   // Validate frontier before accepting
   if (!isFrontierValid(frontier)) {
     RCLCPP_WARN(this->get_logger(),
-      "Rejecting frontier [%.2f, %.2f, %.2f] - too low or too far from cave",
-      frontier[0], frontier[1], frontier[2]);
+      "Rejecting frontier [%.2f, %.2f, %.2f] (Z=%.2f, cave_x_min=%.2f)",
+      frontier[0], frontier[1], frontier[2], frontier[2], cave_entrance_[0]);
     return;
   }
   
@@ -119,6 +125,28 @@ void RRTPathPlanner::planPath() {
     return;
   }
   
+  // Check if we need to replan:
+  // 1. Target has changed significantly, OR
+  // 2. Drone is close to last planned target (goal reached)
+  double target_change = (target_frontier_ - last_planned_target_).norm();
+  double distance_to_goal = (current_position_ - last_planned_target_).norm();
+  
+  bool target_changed = target_change >= replan_threshold_;
+  bool goal_reached = (distance_to_goal < 5.0 && last_planned_target_.norm() > 0.1);
+  bool first_plan = last_planned_target_.norm() < 0.1;
+  
+  if (!target_changed && !goal_reached && !first_plan) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "No replan needed: target_change=%.2f < %.2f, dist_to_goal=%.2f",
+      target_change, replan_threshold_, distance_to_goal);
+    return;
+  }
+  
+  if (goal_reached) {
+    RCLCPP_INFO(this->get_logger(),
+      "Goal reached (dist=%.2f m), planning to next frontier", distance_to_goal);
+  }
+  
   RCLCPP_DEBUG(this->get_logger(),
     "Planning path from [%.2f, %.2f, %.2f] to [%.2f, %.2f, %.2f]",
     current_position_[0], current_position_[1], current_position_[2],
@@ -132,9 +160,12 @@ void RRTPathPlanner::planPath() {
     publishTrajectory(path);
     publishPlanMarkers(path);
     
+    // Remember what we planned
+    last_planned_target_ = target_frontier_;
+    
     RCLCPP_INFO(this->get_logger(),
-      "Published trajectory with %zu waypoints",
-      path.size());
+      "Published trajectory with %zu waypoints to [%.1f, %.1f, %.1f]",
+      path.size(), target_frontier_[0], target_frontier_[1], target_frontier_[2]);
   }
 }
 
@@ -154,17 +185,10 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::generateSimplePath(
   double step_size) {
   
   std::vector<Eigen::Vector3d> path;
+  
+  // For straight-line path: only use start and goal (no intermediate waypoints)
+  // This creates a simple direct trajectory that is fast and efficient
   path.push_back(start);
-  
-  Eigen::Vector3d current = start;
-  Eigen::Vector3d direction = (goal - start).normalized();
-  
-  while ((current - goal).norm() > step_size && path.size() < 100) {
-    current = current + direction * step_size;
-    path.push_back(current);
-  }
-  
-  // Always add goal
   path.push_back(goal);
   
   return path;
@@ -190,13 +214,8 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
                         Eigen::Vector3d::Zero());
     vertices.push_back(start);
     
-    // Intermediate vertices from path
-    for (size_t i = 1; i < path.size() - 1; ++i) {
-      mav_trajectory_generation::Vertex intermediate(dimension);
-      intermediate.addConstraint(mav_trajectory_generation::derivative_order::POSITION, 
-                                path[i]);
-      vertices.push_back(intermediate);
-    }
+    // For straight-line paths: NO intermediate waypoints
+    // Direct path from start to goal is fastest and most efficient
     
     // End vertex (goal = last path point)
     mav_trajectory_generation::Vertex end(dimension);
@@ -208,7 +227,7 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
     // Estimate segment times based on distances and velocities
     std::vector<double> segment_times;
     segment_times = mav_trajectory_generation::estimateSegmentTimes(
-      vertices, 0.5, 0.3); // max_v=0.5 m/s, max_a=0.3 m/s²
+      vertices, max_velocity_, max_acceleration_);
     
     // Create trajectory using linear optimization (Phase 1)
     // For Phase 1, linear optimization is sufficient for straight-line paths
@@ -314,6 +333,15 @@ bool RRTPathPlanner::isFrontierValid(const Eigen::Vector3d& frontier) {
     RCLCPP_DEBUG(this->get_logger(),
       "Rejecting frontier [%.2f, %.2f, %.2f] - Z=%.2f < min_z=%.2f (too close to cave floor)",
       frontier[0], frontier[1], frontier[2], frontier[2], min_frontier_z_);
+    return false;
+  }
+  
+  // Check 2: Cave X-coordinates are always < -330 (cave entrance X)
+  // Reject frontiers outside the cave (X >= -330)
+  if (frontier[0] >= cave_entrance_[0]) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Rejecting frontier [%.2f, %.2f, %.2f] - outside cave (X=%.2f >= cave_entrance_x=%.2f)",
+      frontier[0], frontier[1], frontier[2], frontier[0], cave_entrance_[0]);
     return false;
   }
   
