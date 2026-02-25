@@ -30,7 +30,7 @@ rrt_path_planner:
     max_acceleration: 1.0        # m/s² (increased for faster flight)
     
     # Replanning
-    replan_threshold: 2.0        # meters (only replan if target moves more than this)
+    replan_threshold: 0.5        # meters (only replan if target moves more than this) - aggressive for cave exploration
     
     # Cave parameters
     cave_entrance_x: -330.0      # Cave entrance X position

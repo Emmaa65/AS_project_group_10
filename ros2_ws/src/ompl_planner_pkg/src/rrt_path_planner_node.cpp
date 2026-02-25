@@ -117,11 +117,14 @@ void RRTPathPlanner::stateCallback(const std_msgs::msg::String::SharedPtr msg) {
 void RRTPathPlanner::planPath() {
   // Only plan during autonomous exploration
   if (exploration_state_ != "AUTONOMOUS_EXPLORATION") {
+    RCLCPP_DEBUG(this->get_logger(), "Not in AUTONOMOUS_EXPLORATION mode, skipping planning");
     return;
   }
   
   // Only plan if we have a target
   if (!has_target_) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+      "No target frontier available for planning");
     return;
   }
   
@@ -132,7 +135,7 @@ void RRTPathPlanner::planPath() {
   double distance_to_goal = (current_position_ - last_planned_target_).norm();
   
   bool target_changed = target_change >= replan_threshold_;
-  bool goal_reached = (distance_to_goal < 5.0 && last_planned_target_.norm() > 0.1);
+  bool goal_reached = (distance_to_goal < 10.0 && last_planned_target_.norm() > 0.1);  // Increased to 10m for earlier replanning
   bool first_plan = last_planned_target_.norm() < 0.1;
   
   if (!target_changed && !goal_reached && !first_plan) {
@@ -145,9 +148,12 @@ void RRTPathPlanner::planPath() {
   if (goal_reached) {
     RCLCPP_INFO(this->get_logger(),
       "Goal reached (dist=%.2f m), planning to next frontier", distance_to_goal);
+  } else if (target_changed) {
+    RCLCPP_INFO(this->get_logger(),
+      "Target changed by %.2f m, replanning", target_change);
   }
   
-  RCLCPP_DEBUG(this->get_logger(),
+  RCLCPP_INFO(this->get_logger(),
     "Planning path from [%.2f, %.2f, %.2f] to [%.2f, %.2f, %.2f]",
     current_position_[0], current_position_[1], current_position_[2],
     target_frontier_[0], target_frontier_[1], target_frontier_[2]);
@@ -166,6 +172,10 @@ void RRTPathPlanner::planPath() {
     RCLCPP_INFO(this->get_logger(),
       "Published trajectory with %zu waypoints to [%.1f, %.1f, %.1f]",
       path.size(), target_frontier_[0], target_frontier_[1], target_frontier_[2]);
+  } else {
+    RCLCPP_ERROR(this->get_logger(), 
+      "Failed to plan path to target [%.1f, %.1f, %.1f]",
+      target_frontier_[0], target_frontier_[1], target_frontier_[2]);
   }
 }
 
@@ -186,8 +196,7 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::generateSimplePath(
   
   std::vector<Eigen::Vector3d> path;
   
-  // For straight-line path: only use start and goal (no intermediate waypoints)
-  // This creates a simple direct trajectory that is fast and efficient
+  // Add start point
   path.push_back(start);
   path.push_back(goal);
   

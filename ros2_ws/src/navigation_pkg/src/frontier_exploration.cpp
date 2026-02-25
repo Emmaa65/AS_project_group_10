@@ -77,6 +77,7 @@ private:
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -13.5; // Minimum safe height
+    double safety_margin_ = 5.0; // Minimum distance from obstacles (meters)
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -273,29 +274,110 @@ private:
                            const PointCloudPtr &cloud) {
         if (clusters.empty()) return 0;
         
+        // Get current drone position
+        Eigen::Vector3d drone_pos;
+        {
+            std::lock_guard<std::mutex> lock(drone_state_mutex_);
+            drone_pos.x() = current_pose_.position.x;
+            drone_pos.y() = current_pose_.position.y;
+            drone_pos.z() = current_pose_.position.z;
+        }
+        
         size_t best_idx = 0;
         double best_score = -std::numeric_limits<double>::infinity();
+        const double min_distance = 5.0;  // Minimum distance from drone (meters) - reduced for deep exploration
+        
+        // First pass: try to find clusters far enough from drone
+        bool found_distant_cluster = false;
+        const double entrance_x = -350.0;  // Cave entrance region (penalize return to entrance)
         
         for (size_t i = 0; i < clusters.size(); ++i) {
             // Compute cluster centroid
             Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
             
-            // Score: prefer deeper in cave (smaller X) with size bonus
-            // Negative X because cave extends in -X direction
-            // Size bonus: log scale to avoid huge clusters dominating
-            double depth_score = -centroid.x();  // More negative X = higher score
-            double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
-            double score = depth_score + size_bonus;
+            // Check distance to avoid getting stuck at same position
+            double distance = (centroid - drone_pos).norm();
+            if (distance < min_distance) {
+                RCLCPP_INFO(this->get_logger(),
+                    "Cluster %zu: X=%.2f, size=%zu, distance=%.2f - SKIPPED (too close to drone)",
+                    i, centroid.x(), clusters[i].indices.size(), distance);
+                continue;
+            }
             
-            RCLCPP_DEBUG(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, depth_score=%.2f, size_bonus=%.2f, total=%.2f",
-                i, centroid.x(), clusters[i].indices.size(), depth_score, size_bonus, score);
+            // CRITICAL: Check if position is safe (5m from all obstacles)
+            if (!isSafePosition(centroid)) {
+                RCLCPP_INFO(this->get_logger(),
+                    "Cluster %zu: X=%.2f, size=%zu - SKIPPED (too close to obstacles, <%.1fm safety margin)",
+                    i, centroid.x(), clusters[i].indices.size(), safety_margin_);
+                continue;
+            }
+            
+            found_distant_cluster = true;
+            
+            // Score: strongly prefer deeper in cave (smaller X)
+            // Negative X because cave extends in -X direction
+            double depth_score = -centroid.x();  // More negative X = higher score
+            
+            // Reduced size bonus so depth is more important
+            double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
+            
+            // Heavy penalty for clusters near entrance (prevent return to entrance)
+            double entrance_penalty = 0.0;
+            if (centroid.x() > entrance_x) {  // Too close to entrance
+                entrance_penalty = (centroid.x() - entrance_x) * 50.0;  // Large penalty
+            }
+            
+            double score = depth_score + size_bonus - entrance_penalty;
+            
+            RCLCPP_INFO(this->get_logger(),
+                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, depth=%.1f, size_bonus=%.1f, entrance_penalty=%.1f, total=%.1f",
+                i, centroid.x(), clusters[i].indices.size(), distance, 
+                depth_score, size_bonus, entrance_penalty, score);
             
             if (score > best_score) {
                 best_score = score;
                 best_idx = i;
             }
         }
+        
+        // Fallback: if all clusters too close, choose deepest one anyway
+        if (!found_distant_cluster) {
+            RCLCPP_WARN(this->get_logger(), 
+                "All %zu clusters <%.1fm away from drone at (%.2f, %.2f, %.2f), selecting deepest as last resort", 
+                clusters.size(), min_distance, drone_pos.x(), drone_pos.y(), drone_pos.z());
+            best_score = -std::numeric_limits<double>::infinity();
+            
+            for (size_t i = 0; i < clusters.size(); ++i) {
+                Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
+                double distance = (centroid - drone_pos).norm();
+                
+                // In emergency fallback: ignore entrance penalty, just find deepest
+                double depth_score = -centroid.x();
+                double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
+                double score = depth_score + size_bonus;
+                
+                RCLCPP_WARN(this->get_logger(),
+                    "Fallback cluster %zu: X=%.2f, size=%zu, dist=%.2f, score=%.1f",
+                    i, centroid.x(), clusters[i].indices.size(), distance, score);
+                
+                if (score > best_score) {
+                    best_score = score;
+                    best_idx = i;
+                }
+            }
+            
+            // If still no valid cluster found (shouldn't happen), use first cluster
+            if (best_score == -std::numeric_limits<double>::infinity()) {
+                RCLCPP_ERROR(this->get_logger(), "No valid cluster found, using cluster 0 as emergency fallback");
+                best_idx = 0;
+            }
+        }
+        
+        // Log selected cluster
+        Eigen::Vector3d selected_centroid = computeClusterCentroid(cloud, clusters[best_idx]);
+        RCLCPP_INFO(this->get_logger(), 
+            ">>> SELECTED cluster %zu at X=%.2f (score=%.1f)", 
+            best_idx, selected_centroid.x(), best_score);
         
         return best_idx;
     }
@@ -311,6 +393,42 @@ private:
         }
         centroid /= static_cast<double>(indices.indices.size());
         return centroid;
+    }
+
+    // Check if a point is safe (at least safety_margin away from all occupied voxels)
+    bool isSafePosition(const Eigen::Vector3d &pos) {
+        const double check_radius = safety_margin_;
+        const double res = 1.0; // Check resolution (1m steps)
+        
+        // Check sphere around position for obstacles
+        for (double dx = -check_radius; dx <= check_radius; dx += res) {
+            for (double dy = -check_radius; dy <= check_radius; dy += res) {
+                for (double dz = -check_radius; dz <= check_radius; dz += res) {
+                    double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                    if (dist > check_radius) continue; // Outside sphere
+                    
+                    double check_x = pos.x() + dx;
+                    double check_y = pos.y() + dy;
+                    double check_z = pos.z() + dz;
+                    
+                    // Check if this voxel is occupied
+                    bool occupied = false;
+                    if (color_octree_) {
+                        auto node = color_octree_->search(check_x, check_y, check_z);
+                        occupied = (node && color_octree_->isNodeOccupied(node));
+                    } else if (octree_) {
+                        auto node = octree_->search(check_x, check_y, check_z);
+                        occupied = (node && octree_->isNodeOccupied(node));
+                    }
+                    
+                    if (occupied) {
+                        // Found obstacle within safety margin
+                        return false;
+                    }
+                }
+            }
+        }
+        return true; // No obstacles found within safety margin
     }
 
     // Adjust Z coordinate to be in the middle of the cave at the given XY position
@@ -356,16 +474,42 @@ private:
             }
         }
         
-        // Set Z to middle of occupied range
+        // Set Z to safe flying height
         if (found_any) {
-            adjusted.z() = (z_min_occupied + z_max_occupied) / 2.0;
-            RCLCPP_DEBUG(this->get_logger(), 
-                "Adjusted Z from %.2f to %.2f (mid between %.2f and %.2f)",
-                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied);
+            double height = z_max_occupied - z_min_occupied;
+            
+            // Safety checks
+            const double min_passage_height = 3.0;  // Minimum clearance needed
+            const double max_flight_z = 35.0;        // Maximum safe altitude
+            
+            if (height < min_passage_height) {
+                RCLCPP_WARN(this->get_logger(), 
+                    "Passage too narrow at (%.2f, %.2f): height=%.2fm (floor=%.2f, ceiling=%.2f), using original Z=%.2f",
+                    centroid.x(), centroid.y(), height, z_min_occupied, z_max_occupied, centroid.z());
+                // Keep original Z if passage is too narrow
+                return adjusted;
+            }
+            
+            // Fly at 40% height between floor and ceiling (closer to floor for safety)
+            adjusted.z() = z_min_occupied + height * 0.4;
+            
+            // Cap at maximum safe altitude
+            if (adjusted.z() > max_flight_z) {
+                RCLCPP_WARN(this->get_logger(),
+                    "Adjusted Z=%.2f exceeds max safe altitude %.2f, capping",
+                    adjusted.z(), max_flight_z);
+                adjusted.z() = max_flight_z;
+            }
+            
+            RCLCPP_INFO(this->get_logger(), 
+                "Adjusted Z from %.2f to %.2f (floor=%.2f, ceiling=%.2f, height=%.2fm)",
+                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied, height);
         } else {
             RCLCPP_WARN(this->get_logger(),
-                "No occupied voxels found in Z-column at (%.2f, %.2f), keeping original Z=%.2f",
-                centroid.x(), centroid.y(), centroid.z());
+                "No occupied voxels found in Z-column at (%.2f, %.2f), using safe default Z=15.0",
+                centroid.x(), centroid.y());
+            // Use safe default height if no obstacles found
+            adjusted.z() = 15.0;
         }
         
         return adjusted;
@@ -373,15 +517,48 @@ private:
 
     void publishGoalFromCentroid(const Eigen::Vector3d &centroid, size_t cluster_size) {
         if (!frontier_goal_pub_) return;
+        
+        // Get current drone position
+        Eigen::Vector3d drone_pos;
+        {
+            std::lock_guard<std::mutex> lock(drone_state_mutex_);
+            drone_pos.x() = current_pose_.position.x;
+            drone_pos.y() = current_pose_.position.y;
+            drone_pos.z() = current_pose_.position.z;
+        }
+        
+        // Calculate direction vector from drone to goal
+        Eigen::Vector3d direction = centroid - drone_pos;
+        
+        // Calculate yaw angle to point camera towards goal
+        // Yaw = atan2(dy, dx) rotates around Z axis to point in XY plane direction
+        double yaw = std::atan2(direction.y(), direction.x());
+        
+        // Add 180° offset to match camera/body orientation
+        yaw += M_PI;
+        
+        // Convert yaw to quaternion (rotation around Z axis)
+        // q = [cos(yaw/2), 0, 0, sin(yaw/2)]
+        double half_yaw = yaw / 2.0;
+        
         geometry_msgs::msg::PoseStamped goal;
         goal.header.stamp = this->now();
         goal.header.frame_id = "map";
         goal.pose.position.x = centroid.x();
         goal.pose.position.y = centroid.y();
         goal.pose.position.z = centroid.z();
-        goal.pose.orientation.w = 1.0;
+        
+        // Set orientation to point camera towards goal
+        goal.pose.orientation.x = 0.0;
+        goal.pose.orientation.y = 0.0;
+        goal.pose.orientation.z = std::sin(half_yaw);
+        goal.pose.orientation.w = std::cos(half_yaw);
+        
         frontier_goal_pub_->publish(goal);
-        RCLCPP_INFO(this->get_logger(), "Published frontier goal at (%.2f, %.2f, %.2f) from cluster size %zu", centroid.x(), centroid.y(), centroid.z(), cluster_size);
+        
+        RCLCPP_INFO(this->get_logger(), 
+            "Published frontier goal at (%.2f, %.2f, %.2f) with yaw=%.1f° from cluster size %zu", 
+            centroid.x(), centroid.y(), centroid.z(), yaw * 180.0 / M_PI, cluster_size);
     }
 };
 
