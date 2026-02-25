@@ -44,9 +44,9 @@ public:
         current_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "current_state", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
         
-            // Timer Callback for Periodic Exploration
+            // Timer Callback for Periodic Exploration (2 Hz)
         exploration_timer_ = this->create_wall_timer(
-            std::chrono::duration<double>(1.0/1000.0), std::bind(&FrontierExploration::explorationTimerCallback, this)
+            std::chrono::duration<double>(0.5), std::bind(&FrontierExploration::explorationTimerCallback, this)
         );
 
         // Frontier Goal Publisher
@@ -74,6 +74,9 @@ private:
     double cluster_tolerance_ = 1.5; // meters
     int min_cluster_size_ = 1;
     int max_cluster_size_ = 10000;
+    // Cave entrance filter (only consider frontiers inside cave)
+    double max_frontier_x_ = -330.0; // Cave extends only in X < -330
+    double min_frontier_z_ = -13.5; // Minimum safe height
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -138,13 +141,23 @@ private:
             return;
         }
 
-        // Select largest cluster
-        size_t largest_idx = findLargestCluster(cluster_indices);
+    // Select best cluster: prefer clusters deeper in the cave (smaller X)
+    // with a size bonus to avoid tiny outliers
+    size_t best_idx = findBestCluster(cluster_indices, frontier_cloud);
 
-        // Compute centroid and publish
-        Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[largest_idx]);
-        // RCLCPP_INFO(this->get_logger(), "explorationTimerCallback: largest_idx=%zu centroid=(%.3f, %.3f, %.3f)", largest_idx, centroid.x(), centroid.y(), centroid.z());
-        publishGoalFromCentroid(centroid, cluster_indices[largest_idx].indices.size());
+    // Compute centroid (XY average of frontier cluster)
+    Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[best_idx]);
+    
+    // Adjust Z to be in the middle of the cave at this XY position
+    Eigen::Vector3d adjusted_centroid = adjustZToMidHeight(centroid);
+    
+    RCLCPP_INFO(this->get_logger(), 
+        "Selected cluster %zu (size=%zu, X=%.2f): centroid: (%.2f, %.2f, %.2f) -> adjusted: (%.2f, %.2f, %.2f)",
+        best_idx, cluster_indices[best_idx].indices.size(), centroid.x(),
+        centroid.x(), centroid.y(), centroid.z(),
+        adjusted_centroid.x(), adjusted_centroid.y(), adjusted_centroid.z());
+    
+    publishGoalFromCentroid(adjusted_centroid, cluster_indices[best_idx].indices.size());
     }
 
 
@@ -176,12 +189,15 @@ private:
                     if (!ct.isNodeOccupied(node)) { is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    pcl::PointXYZ p;
-                    p.x = static_cast<float>(x);
-                    p.y = static_cast<float>(y);
-                    p.z = static_cast<float>(z);
-                    frontier_cloud->points.push_back(p);
-                    ++found;
+                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
+                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
+                        pcl::PointXYZ p;
+                        p.x = static_cast<float>(x);
+                        p.y = static_cast<float>(y);
+                        p.z = static_cast<float>(z);
+                        frontier_cloud->points.push_back(p);
+                        ++found;
+                    }
                 }
             }
             RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", checked, found);
@@ -207,12 +223,15 @@ private:
                     if (!ot.isNodeOccupied(node)) { is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    pcl::PointXYZ p;
-                    p.x = static_cast<float>(x);
-                    p.y = static_cast<float>(y);
-                    p.z = static_cast<float>(z);
-                    frontier_cloud->points.push_back(p);
-                    ++found;
+                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
+                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
+                        pcl::PointXYZ p;
+                        p.x = static_cast<float>(x);
+                        p.y = static_cast<float>(y);
+                        p.z = static_cast<float>(z);
+                        frontier_cloud->points.push_back(p);
+                        ++found;
+                    }
                 }
             }
             RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", checked, found);
@@ -248,6 +267,39 @@ private:
         return largest_idx;
     }
 
+    // Find best cluster for exploration: prefer clusters deeper in cave (smaller X)
+    // with bonus for larger clusters to avoid tiny outliers
+    size_t findBestCluster(const std::vector<pcl::PointIndices> &clusters, 
+                           const PointCloudPtr &cloud) {
+        if (clusters.empty()) return 0;
+        
+        size_t best_idx = 0;
+        double best_score = -std::numeric_limits<double>::infinity();
+        
+        for (size_t i = 0; i < clusters.size(); ++i) {
+            // Compute cluster centroid
+            Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
+            
+            // Score: prefer deeper in cave (smaller X) with size bonus
+            // Negative X because cave extends in -X direction
+            // Size bonus: log scale to avoid huge clusters dominating
+            double depth_score = -centroid.x();  // More negative X = higher score
+            double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
+            double score = depth_score + size_bonus;
+            
+            RCLCPP_DEBUG(this->get_logger(),
+                "Cluster %zu: X=%.2f, size=%zu, depth_score=%.2f, size_bonus=%.2f, total=%.2f",
+                i, centroid.x(), clusters[i].indices.size(), depth_score, size_bonus, score);
+            
+            if (score > best_score) {
+                best_score = score;
+                best_idx = i;
+            }
+        }
+        
+        return best_idx;
+    }
+
     Eigen::Vector3d computeClusterCentroid(const PointCloudPtr &cloud, const pcl::PointIndices &indices) {
         Eigen::Vector3d centroid(0,0,0);
         if (indices.indices.empty()) return centroid;
@@ -259,6 +311,64 @@ private:
         }
         centroid /= static_cast<double>(indices.indices.size());
         return centroid;
+    }
+
+    // Adjust Z coordinate to be in the middle of the cave at the given XY position
+    // by finding the highest and lowest occupied voxels
+    Eigen::Vector3d adjustZToMidHeight(const Eigen::Vector3d &centroid) {
+        Eigen::Vector3d adjusted = centroid;
+        
+        // Search range in Z direction
+        double search_z_min = -50.0;  // Minimum expected Z in cave
+        double search_z_max = 100.0;  // Maximum expected Z in cave
+        double z_step = 1.0;          // Step size for Z search (octree resolution)
+        
+        double z_min_occupied = search_z_max;
+        double z_max_occupied = search_z_min;
+        bool found_any = false;
+        
+        // Use the appropriate octree
+        if (color_octree_) {
+            auto &ct = *color_octree_;
+            double res = ct.getResolution();
+            
+            // Search vertically at the centroid's XY position
+            for (double z = search_z_min; z <= search_z_max; z += res) {
+                auto node = ct.search(centroid.x(), centroid.y(), z);
+                if (node && ct.isNodeOccupied(node)) {
+                    found_any = true;
+                    if (z < z_min_occupied) z_min_occupied = z;
+                    if (z > z_max_occupied) z_max_occupied = z;
+                }
+            }
+        } else if (octree_) {
+            auto &ot = *octree_;
+            double res = ot.getResolution();
+            
+            // Search vertically at the centroid's XY position
+            for (double z = search_z_min; z <= search_z_max; z += res) {
+                auto node = ot.search(centroid.x(), centroid.y(), z);
+                if (node && ot.isNodeOccupied(node)) {
+                    found_any = true;
+                    if (z < z_min_occupied) z_min_occupied = z;
+                    if (z > z_max_occupied) z_max_occupied = z;
+                }
+            }
+        }
+        
+        // Set Z to middle of occupied range
+        if (found_any) {
+            adjusted.z() = (z_min_occupied + z_max_occupied) / 2.0;
+            RCLCPP_DEBUG(this->get_logger(), 
+                "Adjusted Z from %.2f to %.2f (mid between %.2f and %.2f)",
+                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied);
+        } else {
+            RCLCPP_WARN(this->get_logger(),
+                "No occupied voxels found in Z-column at (%.2f, %.2f), keeping original Z=%.2f",
+                centroid.x(), centroid.y(), centroid.z());
+        }
+        
+        return adjusted;
     }
 
     void publishGoalFromCentroid(const Eigen::Vector3d &centroid, size_t cluster_size) {
