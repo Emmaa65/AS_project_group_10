@@ -6,6 +6,7 @@
 #include <mav_trajectory_generation/trajectory_sampling.h>
 #include <mav_trajectory_generation/ros_conversions.h>
 #include <mav_msgs/eigen_mav_msgs.hpp>
+#include <cmath>  // for atan2
 
 class TrajectoryExecutor : public rclcpp::Node {
 private:
@@ -80,6 +81,40 @@ private:
       return;
     }
 
+    // Calculate orientation based on velocity direction (point camera towards movement)
+    // This makes the camera look in the direction the drone is flying
+    double velocity_magnitude = sampled_point.velocity_W.norm();
+    Eigen::Quaterniond orientation_W_B;
+    
+    if (velocity_magnitude > 0.01) {  // Very low threshold to always orient towards movement
+      // Calculate yaw from velocity in XY plane
+      double yaw = std::atan2(sampled_point.velocity_W(1), sampled_point.velocity_W(0));
+      
+      // Add 180° offset because camera is mounted backwards relative to velocity direction
+      // This makes the drone fly forward with camera pointing in flight direction
+      yaw += M_PI;
+      
+      // Create quaternion for rotation around Z axis (yaw only, keep drone level)
+      double half_yaw = yaw / 2.0;
+      orientation_W_B = Eigen::Quaterniond(
+        std::cos(half_yaw),  // w
+        0.0,                  // x
+        0.0,                  // y
+        std::sin(half_yaw)    // z
+      );
+      
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+        "Velocity-based orientation: vel=[%.2f, %.2f, %.2f], mag=%.2f, yaw=%.1f° (with 180° offset)", 
+        sampled_point.velocity_W(0), sampled_point.velocity_W(1), sampled_point.velocity_W(2),
+        velocity_magnitude, yaw * 180.0 / M_PI);
+    } else {
+      // At very low velocity, keep level but maintain last yaw
+      // This prevents orientation flickering at trajectory start/end
+      orientation_W_B = sampled_point.orientation_W_B;
+      RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+        "Low velocity (%.3f m/s), using trajectory orientation", velocity_magnitude);
+    }
+
     // Convert to MultiDOFJointTrajectoryPoint message
     trajectory_msgs::msg::MultiDOFJointTrajectoryPoint desired_state;
 
@@ -89,11 +124,11 @@ private:
     desired_state.transforms[0].translation.y = sampled_point.position_W(1);
     desired_state.transforms[0].translation.z = sampled_point.position_W(2);
 
-    // Convert Eigen::Quaterniond to geometry_msgs::Quaternion
-    desired_state.transforms[0].rotation.x = sampled_point.orientation_W_B.x();
-    desired_state.transforms[0].rotation.y = sampled_point.orientation_W_B.y();
-    desired_state.transforms[0].rotation.z = sampled_point.orientation_W_B.z();
-    desired_state.transforms[0].rotation.w = sampled_point.orientation_W_B.w();
+    // Use velocity-based orientation instead of sampled orientation
+    desired_state.transforms[0].rotation.x = orientation_W_B.x();
+    desired_state.transforms[0].rotation.y = orientation_W_B.y();
+    desired_state.transforms[0].rotation.z = orientation_W_B.z();
+    desired_state.transforms[0].rotation.w = orientation_W_B.w();
 
     // Velocity
     desired_state.velocities.resize(1);
