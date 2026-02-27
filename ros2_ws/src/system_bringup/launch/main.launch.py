@@ -79,6 +79,8 @@ def generate_launch_description():
                 "octomap.bt",
             ]),
             description="Path to save OctoMap file (.bt or .ot)"
+        ),
+        DeclareLaunchArgument(
             "enable_object",
             default_value="true",
             description="Launch object detection"
