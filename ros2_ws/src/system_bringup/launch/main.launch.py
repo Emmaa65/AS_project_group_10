@@ -21,6 +21,7 @@ def generate_launch_description():
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
+    octomap_autosave_interval_sec = LaunchConfiguration("octomap_autosave_interval_sec")
     enable_object = LaunchConfiguration("enable_object")
     
     right_image_topic = LaunchConfiguration("right_image_topic")
@@ -79,6 +80,11 @@ def generate_launch_description():
                 "octomap.bt",
             ]),
             description="Path to save OctoMap file (.bt or .ot)"
+        ),
+        DeclareLaunchArgument(
+            "octomap_autosave_interval_sec",
+            default_value="10.0",
+            description="Periodic OctoMap autosave interval in seconds (<=0 disables)"
         ),
         DeclareLaunchArgument(
             "enable_object",
@@ -172,6 +178,7 @@ def generate_launch_description():
             {"sensor_model.max_range": 50.0},
             {"save_on_shutdown": save_octomap_on_shutdown},
             {"save_map_path": octomap_save_path},
+            {"autosave_interval_sec": octomap_autosave_interval_sec},
         ],
         remappings=[
             ("cloud_in", "/camera/pointcloud"),

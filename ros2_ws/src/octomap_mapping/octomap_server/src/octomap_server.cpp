@@ -29,6 +29,7 @@
 #include <octomap_server/octomap_server.hpp>
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <string>
@@ -215,6 +216,13 @@ OctomapServer::OctomapServer(const rclcpp::NodeOptions & node_options)
   }
   save_on_shutdown_ = declare_parameter("save_on_shutdown", false);
   save_map_path_ = declare_parameter("save_map_path", "");
+  autosave_interval_sec_ = declare_parameter("autosave_interval_sec", 0.0);
+  if (!save_map_path_.empty()) {
+    const std::string tmp_path = save_map_path_ + ".tmp";
+    if (std::remove(tmp_path.c_str()) == 0) {
+      RCLCPP_INFO(get_logger(), "Removed stale temporary map file: %s", tmp_path.c_str());
+    }
+  }
   {
     rcl_interfaces::msg::ParameterDescriptor incremental_2D_projection_desc;
     incremental_2D_projection_desc.description = "Incremental 2D projection";
@@ -347,6 +355,24 @@ OctomapServer::OctomapServer(const rclcpp::NodeOptions & node_options)
       rclcpp::on_shutdown([this]() { this->saveMapToFile(); });
     }
   }
+
+  if (autosave_interval_sec_ > 0.0) {
+    if (save_map_path_.empty()) {
+      RCLCPP_WARN(
+        get_logger(),
+        "autosave_interval_sec > 0 but save_map_path is empty; periodic autosave is disabled");
+    } else {
+      autosave_timer_ = this->create_wall_timer(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::duration<double>(autosave_interval_sec_)),
+        [this]() { this->saveMapToFile(); });
+      RCLCPP_INFO(
+        get_logger(),
+        "Periodic Octomap autosave enabled every %.2f s to %s",
+        autosave_interval_sec_,
+        save_map_path_.c_str());
+    }
+  }
 }
 
 bool OctomapServer::openFile(const std::string & filename)
@@ -413,25 +439,41 @@ void OctomapServer::saveMapToFile() const
     RCLCPP_WARN(get_logger(), "Octomap not initialized, cannot save");
     return;
   }
+  if (octree_->size() == 0) {
+    RCLCPP_WARN(get_logger(), "Octomap is empty, skipping save to avoid empty file overwrite");
+    return;
+  }
   if (save_map_path_.length() < 4) {
     RCLCPP_ERROR_STREAM(get_logger(), "Invalid save_map_path: " << save_map_path_);
     return;
   }
 
+  const std::string tmp_path = save_map_path_ + ".tmp";
   const std::string suffix = save_map_path_.substr(save_map_path_.length() - 3, 3);
+  bool write_ok = false;
   if (suffix == ".bt") {
-    if (!octree_->writeBinary(save_map_path_)) {
-      RCLCPP_ERROR(get_logger(), "Error writing binary map to %s", save_map_path_.c_str());
-      return;
-    }
+    write_ok = octree_->writeBinary(tmp_path);
   } else if (suffix == ".ot") {
-    if (!octree_->write(save_map_path_)) {
-      RCLCPP_ERROR(get_logger(), "Error writing full map to %s", save_map_path_.c_str());
-      return;
-    }
+    write_ok = octree_->write(tmp_path);
   } else {
     RCLCPP_ERROR(get_logger(), "Unknown file extension for %s (use .bt or .ot)",
       save_map_path_.c_str());
+    return;
+  }
+
+  if (!write_ok) {
+    RCLCPP_ERROR(get_logger(), "Error writing temporary map file to %s", tmp_path.c_str());
+    std::remove(tmp_path.c_str());
+    return;
+  }
+
+  if (std::rename(tmp_path.c_str(), save_map_path_.c_str()) != 0) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Failed to move temporary map file from %s to %s",
+      tmp_path.c_str(),
+      save_map_path_.c_str());
+    std::remove(tmp_path.c_str());
     return;
   }
 

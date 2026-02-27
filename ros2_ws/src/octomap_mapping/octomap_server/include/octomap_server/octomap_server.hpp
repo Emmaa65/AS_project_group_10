@@ -297,6 +297,8 @@ protected:
 
   bool save_on_shutdown_;
   std::string save_map_path_;
+  double autosave_interval_sec_;
+  rclcpp::TimerBase::SharedPtr autosave_timer_;
 
   bool init_config_;
 
