@@ -156,6 +156,25 @@ def generate_launch_description():
             arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "-0.5", "--qy", "0.5", "--qz", "-0.5", "--qw", "0.5", "--frame-id", "Quadrotor/Sensors/DepthCamera", "--child-frame-id", "Quadrotor/Sensors/DepthCamera_optical"],
             output="screen",
         ),
+
+        Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="semantic_camera",
+        arguments=["--x", "0.0", "--y", "0.0", "--z", "0.1", "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1", "--frame-id", "Quadrotor/TrueState", "--child-frame-id", "Quadrotor/Sensors/SemanticCamera"],
+        output="screen",
+        ),
+
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="semantic_camera_optical",
+            arguments=["--x", "0", "--y", "0", "--z", "0", "--qx", "-0.5", "--qy", "0.5", "--qz", "-0.5", "--qw", "0.5", "--frame-id", "Quadrotor/Sensors/SemanticCamera", "--child-frame-id", "Quadrotor/Sensors/SemanticCamera_optical"],
+            output="screen",
+        ),
+            
+
+
     ]
 
     return LaunchDescription(
