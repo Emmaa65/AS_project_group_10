@@ -3,7 +3,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -17,7 +17,7 @@ def generate_launch_description():
     declared_args = [
         DeclareLaunchArgument(
             "octomap_path",
-            default_value="/home/madita/octomap.bt",
+            default_value=PathJoinSubstitution([EnvironmentVariable("HOME"), "octomap.bt"]),
             description="Path to saved OctoMap (.bt or .ot)"
         ),
         DeclareLaunchArgument(
