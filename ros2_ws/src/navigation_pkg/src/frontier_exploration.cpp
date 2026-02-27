@@ -314,26 +314,19 @@ private:
             
             found_distant_cluster = true;
             
-            // Score: strongly prefer deeper in cave (smaller X)
-            // Negative X because cave extends in -X direction
-            double depth_score = -centroid.x();  // More negative X = higher score
-            
-            // Reduced size bonus so depth is more important
-            double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
-            
-            // Heavy penalty for clusters near entrance (prevent return to entrance)
-            double entrance_penalty = 0.0;
-            if (centroid.x() > entrance_x) {  // Too close to entrance
-                entrance_penalty = (centroid.x() - entrance_x) * 50.0;  // Large penalty
+            double size_score = static_cast<double>(clusters[i].indices.size()) * 8.0; // Bonus for larger clusters
+            double depth_bonus = -centroid.x() * 0.05; // Prefer deeper clusters (smaller X) with a smaller weight
+            double distance_score = std::min(distance, 200.0) * 0.5; // Bonus for being farther from drone, capped at 200m
+            double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
+            if (centroid.x() > entrance_x) {
+                entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
             }
-            
-            double score = depth_score + size_bonus - entrance_penalty;
-            
+            double score = size_score + depth_bonus + distance_score - entrance_penalty; // Combine factors
             RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, depth=%.1f, size_bonus=%.1f, entrance_penalty=%.1f, total=%.1f",
-                i, centroid.x(), clusters[i].indices.size(), distance, 
-                depth_score, size_bonus, entrance_penalty, score);
-            
+                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, entrance_penalty=%.1f, total=%.1f",
+                i, centroid.x(), clusters[i].indices.size(), distance,
+                size_score, depth_bonus, entrance_penalty, score);
+
             if (score > best_score) {
                 best_score = score;
                 best_idx = i;
@@ -494,7 +487,8 @@ private:
             }
             
             // Fly at 50% height between floor and ceiling (closer to floor for safety)
-            adjusted.z() = z_min_occupied + height * 0.5;
+            //adjusted.z() = z_min_occupied + height * 0.5;
+            adjusted.z() = (z_min_occupied + z_max_occupied) / 2.0;
             
             // Cap at maximum safe altitude
             if (adjusted.z() > max_flight_z) {
