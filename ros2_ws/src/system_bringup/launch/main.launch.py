@@ -21,6 +21,7 @@ def generate_launch_description():
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
+    enable_object = LaunchConfiguration("enable_object")
     
     right_image_topic = LaunchConfiguration("right_image_topic")
     right_info_topic = LaunchConfiguration("right_info_topic")
@@ -29,7 +30,7 @@ def generate_launch_description():
     depth_image_topic = LaunchConfiguration("depth_image_topic")
     depth_info_topic = LaunchConfiguration("depth_info_topic")
 
-    # Declare launch arguments
+    # Declare launch arguments 
     declared_args = [
         DeclareLaunchArgument(
             "load_params", 
@@ -78,6 +79,9 @@ def generate_launch_description():
                 "octomap.bt",
             ]),
             description="Path to save OctoMap file (.bt or .ot)"
+            "enable_object",
+            default_value="true",
+            description="Launch object detection"
         ),
         DeclareLaunchArgument(
             "right_image_topic", 
@@ -103,6 +107,7 @@ def generate_launch_description():
             "depth_info_topic", 
             default_value="/realsense/depth/camera_info"
         ),
+
     ]
 
     # Include simulation launch file
@@ -194,6 +199,18 @@ def generate_launch_description():
         condition=IfCondition(enable_waypoints),
     )
 
+
+    object_detection_launch = IncludeLaunchDescription(
+    PythonLaunchDescriptionSource(
+        PathJoinSubstitution([
+            FindPackageShare("object_detection"),
+            "launch",
+            "object_detection.launch.py"
+        ])
+    ),
+    condition=IfCondition(enable_object),
+    )
+
     # RViz node
     rviz_node = Node(
         package="rviz2",
@@ -203,7 +220,7 @@ def generate_launch_description():
         arguments=["-d", PathJoinSubstitution([
             FindPackageShare("system_bringup"),
             "config",
-            "default.rviz"
+            "default_object.rviz"
         ])],
         condition=IfCondition(enable_rviz),
     )
@@ -218,5 +235,6 @@ def generate_launch_description():
             depth_to_pointcloud_node,
             octomap_server_node,
             rviz_node,
+            object_detection_launch,
         ]
     )
