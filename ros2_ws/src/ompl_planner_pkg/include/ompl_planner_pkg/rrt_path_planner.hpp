@@ -47,7 +47,7 @@ private:
   
   // Cave entrance for filtering invalid frontiers
   Eigen::Vector3d cave_entrance_ = Eigen::Vector3d(-330.0, 10.0, 20.0);
-  double min_frontier_z_ = 13.5; // Minimum safe height (cave is above Z=14, safety margin)
+  double min_frontier_z_ = 33.5; // Minimum safe height (cave is above Z=14, safety margin)
   
   // Planning parameters
   double max_planning_time_ = 1.0;
