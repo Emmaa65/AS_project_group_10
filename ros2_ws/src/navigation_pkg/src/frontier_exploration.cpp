@@ -71,13 +71,13 @@ private:
     geometry_msgs::msg::Pose current_pose_;
     geometry_msgs::msg::Twist current_velocity_;
     // Clustering parameters
-    double cluster_tolerance_ = 1.5; // meters
-    int min_cluster_size_ = 1;
+    double cluster_tolerance_ = 5; // meters
+    int min_cluster_size_ = 10;
     int max_cluster_size_ = 10000;
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -13.5; // Minimum safe height
-    double safety_margin_ = 5.0; // Minimum distance from obstacles (meters)
+    double safety_margin_ = 2.0; // Minimum distance from obstacles (meters)
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -175,7 +175,7 @@ private:
             size_t found = 0;
             for (auto it = ct.begin_leafs(); it != ct.end_leafs(); ++it) {
                 ++checked;
-                if (!ct.isNodeOccupied(*it)) continue;
+                if (ct.isNodeOccupied(*it)) continue;
                 double x = it.getX();
                 double y = it.getY();
                 double z = it.getZ();
@@ -187,7 +187,7 @@ private:
                     double nz = z + off[2] * res;
                     auto node = ct.search(nx, ny, nz);
                     if (!node) { is_frontier = true; break; }
-                    if (!ct.isNodeOccupied(node)) { is_frontier = true; break; }
+                    if (ct.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
                     // Filter: Only accept frontiers inside cave (X < -330) and above floor
@@ -209,7 +209,7 @@ private:
             size_t found = 0;
             for (auto it = ot.begin_leafs(); it != ot.end_leafs(); ++it) {
                 ++checked;
-                if (!ot.isNodeOccupied(*it)) continue;
+                if (ot.isNodeOccupied(*it)) continue;
                 double x = it.getX();
                 double y = it.getY();
                 double z = it.getZ();
@@ -221,7 +221,7 @@ private:
                     double nz = z + off[2] * res;
                     auto node = ot.search(nx, ny, nz);
                     if (!node) { is_frontier = true; break; }
-                    if (!ot.isNodeOccupied(node)) { is_frontier = true; break; }
+                    if (ot.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
                     // Filter: Only accept frontiers inside cave (X < -330) and above floor
@@ -422,6 +422,9 @@ private:
                     }
                     
                     if (occupied) {
+                        RCLCPP_INFO(this->get_logger(), 
+                            "isSafePosition: UNSAFE at (%.2f, %.2f, %.2f) - obstacle at (%.2f, %.2f, %.2f)",
+                            pos.x(), pos.y(), pos.z(), check_x, check_y, check_z);
                         // Found obstacle within safety margin
                         return false;
                     }
