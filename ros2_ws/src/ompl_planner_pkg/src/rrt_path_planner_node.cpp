@@ -27,7 +27,7 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("cave_entrance_x", -330.0);
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
-  this->declare_parameter("min_frontier_z", -13.5); // Keep above cave floor
+  this->declare_parameter("min_frontier_z", -33.5); // Keep above cave floor
   
   max_planning_time_ = this->get_parameter("max_planning_time").as_double();
   step_size_ = this->get_parameter("step_size").as_double();

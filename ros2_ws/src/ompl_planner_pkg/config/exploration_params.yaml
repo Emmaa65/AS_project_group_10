@@ -34,7 +34,7 @@ rrt_path_planner:
     
     # Cave parameters
     cave_entrance_x: -330.0      # Cave entrance X position
-    min_frontier_z: -13.5        # Minimum safe height (negative to accept low points)
+    min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
     
     # Logging level
     log_level: "INFO"
