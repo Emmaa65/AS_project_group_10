@@ -76,7 +76,7 @@ private:
     int max_cluster_size_ = 10000;
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
-    double min_frontier_z_ = -13.5; // Minimum safe height
+    double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 2.0; // Minimum distance from obstacles (meters)
 
     // Callbacks (lightweight stubs to allow compilation)
@@ -493,8 +493,8 @@ private:
                 return adjusted;
             }
             
-            // Fly at 40% height between floor and ceiling (closer to floor for safety)
-            adjusted.z() = z_min_occupied + height * 0.4;
+            // Fly at 50% height between floor and ceiling (closer to floor for safety)
+            adjusted.z() = z_min_occupied + height * 0.5;
             
             // Cap at maximum safe altitude
             if (adjusted.z() > max_flight_z) {
