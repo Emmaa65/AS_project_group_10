@@ -4,6 +4,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -21,6 +23,7 @@ def generate_launch_description():
     enable_waypoints = LaunchConfiguration("enable_waypoints")
     trajectory_finish_topic = LaunchConfiguration("trajectory_finish_topic")
     enable_frontier = LaunchConfiguration("enable_frontier")
+    enable_pointcloud_filter = LaunchConfiguration("enable_pointcloud_filter")
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
@@ -80,6 +83,11 @@ def generate_launch_description():
             "enable_frontier",
             default_value="true",
             description="Launch frontier exploration node from navigation_pkg"
+        ),
+        DeclareLaunchArgument(
+            "enable_pointcloud_filter",
+            default_value="false",
+            description="Enable point cloud outlier filter (true=filtered, false=raw cloud)"
         ),
         DeclareLaunchArgument(
             "save_octomap_on_shutdown",
@@ -191,12 +199,16 @@ def generate_launch_description():
             ("cloud_out", "/camera/pointcloud"),
         ],
         parameters=[
-            {"mean_k": 30},              # Consider 30 nearest neighbors
-            {"stddev_mul_thresh": 1.5},  # Remove points >2σ from mean (conservative)
+            {"voxel_leaf_size": 0.05},    # 5cm voxels (balanced: speed + detail)
+            {"mean_k": 10},               # Reduced: 20 neighbors → 10 (faster)
+            {"stddev_mul_thresh": 1.0},   # Relaxed: 1.5 → 1.0 (faster filtering)
         ],
-        condition=IfCondition(enable_perception),
+        condition=IfCondition(enable_pointcloud_filter),
     )
 
+    # OctoMap server subscribes to appropriate cloud topic based on filter setting
+    # If filter enabled: subscribe to /camera/pointcloud (filtered output)
+    # If filter disabled: subscribe to /camera/pointcloud_raw (raw depth)
     octomap_server_node = Node(
         package="octomap_server",
         executable="octomap_server_node",
@@ -213,7 +225,26 @@ def generate_launch_description():
         remappings=[
             ("cloud_in", "/camera/pointcloud"),
         ],
-        condition=IfCondition(enable_octomap),
+        condition=IfCondition(enable_pointcloud_filter),
+    )
+    
+    # Alternative OctoMap node for when filter is disabled (subscribes to raw cloud)
+    octomap_server_node_raw = Node(
+        package="octomap_server",
+        executable="octomap_server_node",
+        name="octomap_server",
+        output="screen",
+        parameters=[
+            {"frame_id": "world"},
+            {"resolution": 2.0},
+            {"sensor_model.max_range": 75.0},
+            {"save_on_shutdown": save_octomap_on_shutdown},
+            {"save_map_path": octomap_save_path},
+        ],
+        remappings=[
+            ("cloud_in", "/camera/pointcloud_raw"),
+        ],
+        condition=UnlessCondition(enable_pointcloud_filter),
     )
 
     controller_launch = IncludeLaunchDescription(
@@ -301,6 +332,7 @@ def generate_launch_description():
             depth_to_pointcloud_node,
             pointcloud_filter_node,
             octomap_server_node,
+            octomap_server_node_raw,
             rviz_node,
             # Frontier exploration node
             Node(
