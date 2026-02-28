@@ -192,7 +192,7 @@ def generate_launch_description():
         ],
         parameters=[
             {"mean_k": 30},              # Consider 30 nearest neighbors
-            {"stddev_mul_thresh": 2.0},  # Remove points >2σ from mean (conservative)
+            {"stddev_mul_thresh": 1.5},  # Remove points >2σ from mean (conservative)
         ],
         condition=IfCondition(enable_perception),
     )

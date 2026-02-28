@@ -35,6 +35,11 @@ ExplorationManager::ExplorationManager()
     "/exploration/frontier_goal", 10,
     std::bind(&ExplorationManager::frontierGoalCallback, this, std::placeholders::_1));
   
+  // Subscribe to planning results for failure handling
+  sub_planning_result_ = this->create_subscription<std_msgs::msg::Bool>(
+    "planning_result", 10,
+    std::bind(&ExplorationManager::planningResultCallback, this, std::placeholders::_1));
+  
   // Publishers
   pub_next_frontier_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
     "target_frontier", 10);
@@ -80,6 +85,37 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
   frontier.info_gain = 1.0; // frontier_exploration already selected the best one
   
   selected_frontier_ = frontier;
+  
+  // Reset planning failures counter when receiving a new frontier from frontier_exploration
+  planning_failures_ = 0;
+}
+
+void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg) {
+  if (msg->data) {
+    // Planning succeeded
+    RCLCPP_DEBUG(this->get_logger(), "Planning succeeded for frontier");
+    planning_failures_ = 0;
+    last_sent_frontier_ = selected_frontier_.position;
+  } else {
+    // Planning failed
+    planning_failures_++;
+    RCLCPP_WARN(this->get_logger(),
+      "Planning failed for frontier [%.2f, %.2f, %.2f] (failure count: %d/%d)",
+      selected_frontier_.position[0],
+      selected_frontier_.position[1],
+      selected_frontier_.position[2],
+      planning_failures_,
+      MAX_PLANNING_FAILURES);
+    
+    // If too many failures on same frontier, clear it and wait for next one
+    if (planning_failures_ >= MAX_PLANNING_FAILURES) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Frontier unreachable after %d attempts - rejecting and waiting for next",
+        MAX_PLANNING_FAILURES);
+      selected_frontier_.distance = 0.0;  // Clear frontier
+      planning_failures_ = 0;
+    }
+  }
 }
 
 // ============================================================================
@@ -163,11 +199,11 @@ void ExplorationManager::handleWaitingAtEntrance() {
   auto elapsed = (this->get_clock()->now() - state_transition_time_).seconds();
   if (elapsed >= 5.0) {
     RCLCPP_INFO(this->get_logger(), 
-      "Starting autonomous exploration...");
+      "Grid stabilized. Starting autonomous exploration...");
     transitionToState(ExplorationState::AUTONOMOUS_EXPLORATION);
   } else {
     RCLCPP_DEBUG(this->get_logger(),
-      "Waiting at entrance: %.1f / 5.0 seconds", elapsed);
+      "Waiting at entrance: %.1f / 5.0 seconds elapsed", elapsed);
   }
 }
 
@@ -176,18 +212,24 @@ void ExplorationManager::handleAutonomousExploration() {
   // frontier_exploration already selects best frontiers and publishes to /exploration/frontier_goal
   // We just forward it to RRT planner for path generation
   
+  static int log_count = 0;
+  if (++log_count % 10 == 0) {  // Log every 10 calls (1 second at 10Hz)
+    RCLCPP_INFO(this->get_logger(),
+      "AUTONOMOUS: distance=%.2f, pos=[%.2f, %.2f, %.2f], failures=%d",
+      selected_frontier_.distance,
+      selected_frontier_.position[0],
+      selected_frontier_.position[1],
+      selected_frontier_.position[2],
+      planning_failures_);
+  }
+  
   if (selected_frontier_.distance > 0.1) {
     // We have a valid frontier from frontier_exploration
     publishTargetFrontier(selected_frontier_);
-    
-    RCLCPP_DEBUG(this->get_logger(),
-      "Forwarding frontier at [%.2f, %.2f, %.2f] to RRT planner",
-      selected_frontier_.position[0],
-      selected_frontier_.position[1],
-      selected_frontier_.position[2]);
   } else {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-      "Waiting for frontier_exploration to provide frontier goals...");
+      "No frontier available (distance=%.2f)",
+      selected_frontier_.distance);
   }
 }
 
