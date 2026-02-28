@@ -152,10 +152,27 @@ def generate_launch_description():
         remappings=[
             ("image_rect", "/realsense/depth/image"),
             ("camera_info", "/realsense/depth/camera_info"),
-            ("points", "/camera/pointcloud"),
+            ("points", "/camera/pointcloud_raw"),  # Changed to _raw
         ],
         parameters=[
             {"queue_size": 10}
+        ],
+        condition=IfCondition(enable_perception),
+    )
+
+    # Statistical outlier removal filter to remove isolated points (e.g., through wall gaps)
+    pointcloud_filter_node = Node(
+        package="perception_pkg",
+        executable="pointcloud_outlier_filter",
+        name="pointcloud_outlier_filter",
+        output="screen",
+        remappings=[
+            ("cloud_in", "/camera/pointcloud_raw"),
+            ("cloud_out", "/camera/pointcloud"),
+        ],
+        parameters=[
+            {"mean_k": 30},              # Consider 30 nearest neighbors
+            {"stddev_mul_thresh": 2.0},  # Remove points >2σ from mean (conservative)
         ],
         condition=IfCondition(enable_perception),
     )
@@ -222,6 +239,7 @@ def generate_launch_description():
             controller_launch,
             waypoint_launch,
             depth_to_pointcloud_node,
+            pointcloud_filter_node,
             octomap_server_node,
             rviz_node,
             # Frontier exploration node
