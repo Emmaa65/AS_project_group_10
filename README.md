@@ -41,6 +41,21 @@ sudo apt install -y \
     liboctomap-dev \
     libopencv-dev
 ```
+for trajectory planning so far: 
+sudo apt install libompl-dev
+sudo apt install ros-jazzy-ompl
+
+If still not working try to fix in Cmake: 
+
+#add
+find_package(ompl REQUIRED)
+
+# Find OMPL using pkg-config
+#find_package(PkgConfig REQUIRED)
+#pkg_check_modules(OMPL REQUIRED ompl)
+
+
+
 
 ## Run the code
 
