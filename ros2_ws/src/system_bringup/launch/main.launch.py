@@ -115,7 +115,7 @@ def generate_launch_description():
     perception_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
-                FindPackageShare("perception_pkg"), 
+                FindPackageShare("occupancy_grid"), 
                 "launch", 
                 "perception_with_packages.launch.py"
             ])

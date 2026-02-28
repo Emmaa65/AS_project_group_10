@@ -5,7 +5,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='perception_pkg',
+            package='occupancy_grid',
             executable='pointcloud_to_occupancy_grid_node',
             name='pointcloud_to_grid',
             output='screen',
