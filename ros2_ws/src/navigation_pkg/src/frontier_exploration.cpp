@@ -303,6 +303,14 @@ private:
                     i, centroid.x(), clusters[i].indices.size(), distance);
                 continue;
             }
+
+            // Cheap LOS check: skip clusters if straight-line path is blocked
+            if (!isStraightLineFree(drone_pos, centroid)) {
+                RCLCPP_INFO(this->get_logger(),
+                    "Cluster %zu: X=%.2f, size=%zu - SKIPPED (line-of-sight blocked)",
+                    i, centroid.x(), clusters[i].indices.size());
+                continue;
+            }
             
             // CRITICAL: Check if position is safe (5m from all obstacles)
             if (!isSafePosition(centroid)) {
@@ -386,6 +394,54 @@ private:
         }
         centroid /= static_cast<double>(indices.indices.size());
         return centroid;
+    }
+
+    // Cheap line-of-sight check: sample along the straight line and ensure
+    // no occupied voxel is within `safety_margin_` of any sample point.
+    bool isStraightLineFree(const Eigen::Vector3d &a, const Eigen::Vector3d &b) {
+        // If no octree available consider it not free
+        if (!octree_ && !color_octree_) return false;
+
+        // Choose resolution from octree
+        double res = 0.1;
+        if (color_octree_) res = color_octree_->getResolution();
+        else if (octree_) res = octree_->getResolution();
+
+        const double step = std::max(res, 0.25); // sample step (m)
+
+        Eigen::Vector3d dir = b - a;
+        double len = dir.norm();
+        if (len < 1e-6) return true;
+        dir /= len;
+
+        // For each sample along the line, check a small neighborhood for occupied nodes
+        for (double d = 0.0; d <= len; d += step) {
+            Eigen::Vector3d p = a + dir * d;
+
+            // sample in a cube around p with step = res up to safety_margin_
+            for (double dx = -safety_margin_; dx <= safety_margin_; dx += res) {
+                for (double dy = -safety_margin_; dy <= safety_margin_; dy += res) {
+                    for (double dz = -safety_margin_; dz <= safety_margin_; dz += res) {
+                        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                        if (dist > safety_margin_) continue;
+
+                        double cx = p.x() + dx;
+                        double cy = p.y() + dy;
+                        double cz = p.z() + dz;
+
+                        if (color_octree_) {
+                            auto node = color_octree_->search(cx, cy, cz);
+                            if (node && color_octree_->isNodeOccupied(node)) return false;
+                        } else if (octree_) {
+                            auto node = octree_->search(cx, cy, cz);
+                            if (node && octree_->isNodeOccupied(node)) return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     // Check if a point is safe (at least safety_margin away from all occupied voxels)
