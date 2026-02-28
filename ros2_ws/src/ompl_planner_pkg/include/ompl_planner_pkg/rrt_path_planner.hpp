@@ -13,6 +13,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <mav_trajectory_generation/trajectory.h>
 #include <mav_trajectory_generation/polynomial_optimization_nonlinear.h>
 #include <mav_trajectory_generation/trajectory_sampling.h>
@@ -21,6 +22,18 @@
 #include <Eigen/Dense>
 #include <vector>
 #include <memory>
+
+// OMPL headers
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/geometric/SimpleSetup.h>
+#include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl/base/objectives/PathLengthOptimizationObjective.h>
+
+// OctoMap headers
+#include <octomap/octomap.h>
+#include <octomap/OcTree.h>
+#include <octomap_msgs/msg/octomap.hpp>
+#include <octomap_msgs/conversions.h>
 
 class RRTPathPlanner : public rclcpp::Node {
 public:
@@ -32,9 +45,11 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odometry_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_occupancy_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_state_;
+  rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
   
   rclcpp::Publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr pub_trajectory_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_plan_markers_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_planning_result_;
   
   rclcpp::TimerBase::SharedPtr planning_timer_;
   
@@ -57,10 +72,19 @@ private:
   double max_acceleration_ = 2.0;
   double replan_threshold_ = 2.0; // Only replan if target moves more than this
   
+  // OMPL RRT* parameters
+  double collision_check_resolution_ = 0.5;  // Resolution for collision checking (meters)
+  double robot_radius_ = 1.0;  // Conservative robot radius for safety (meters)
+  
+  // OctoMap for collision checking
+  std::shared_ptr<octomap::OcTree> octree_;
+  std::mutex octree_mutex_;
+  
   // Callbacks
   void targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
   void odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void occupancyCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg);
   void stateCallback(const std_msgs::msg::String::SharedPtr msg);
   void planPath();
   
@@ -69,10 +93,18 @@ private:
     const Eigen::Vector3d& start, 
     const Eigen::Vector3d& goal);
   
+  std::vector<Eigen::Vector3d> planPathWithRRTStar(
+    const Eigen::Vector3d& start,
+    const Eigen::Vector3d& goal);
+  
+  bool isStateValid(const ompl::base::State *state);
+  
   std::vector<Eigen::Vector3d> generateSimplePath(
     const Eigen::Vector3d& start,
     const Eigen::Vector3d& goal,
     double step_size = 0.5);
+  
+  void publishPlanningResult(bool success);
   
   // Frontier validation
   bool isFrontierValid(const Eigen::Vector3d& frontier);
