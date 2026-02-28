@@ -19,6 +19,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <Eigen/Dense>
 #include <memory>
 #include <vector>
@@ -40,6 +41,9 @@ private:
   
   // Frontier goal from frontier detector (replaces frontier_points_3d)
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_frontier_goal_;
+  
+  // Planning result feedback
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_planning_result_;
   
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr pub_next_frontier_;
@@ -66,6 +70,9 @@ private:
   
   // Frontier tracking (now from frontier_exploration)
   FrontierPoint selected_frontier_;
+  Eigen::Vector3d last_sent_frontier_ = Eigen::Vector3d::Zero();
+  int planning_failures_ = 0;
+  const int MAX_PLANNING_FAILURES = 3;  // Reject frontier after 3 failures
   
   // Exploration parameters
   double frontier_update_rate_ = 2.0; // Hz
@@ -81,6 +88,7 @@ private:
   
   void odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void frontierGoalCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg);
   void controlLoop();
   
   // ========================================================================

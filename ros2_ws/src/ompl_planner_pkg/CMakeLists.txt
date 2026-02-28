@@ -30,11 +30,19 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
+
+# Find OMPL using pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OMPL REQUIRED ompl)
 
 # Include directories
 include_directories(include)
 include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${PCL_INCLUDE_DIRS})
+include_directories(${OMPL_INCLUDE_DIRS})
+include_directories(${OCTOMAP_INCLUDE_DIRS})
 
 # ============================================================================
 # Exploration Manager Node
@@ -71,13 +79,17 @@ ament_target_dependencies(rrt_path_planner_node
   geometry_msgs
   sensor_msgs
   visualization_msgs
+  nav_msgs
   mav_planning_msgs
   mav_trajectory_generation
+  octomap_msgs
   Eigen3
   PCL
 )
 target_link_libraries(rrt_path_planner_node
   ${PCL_LIBRARIES}
+  ${OMPL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
 )
 target_include_directories(rrt_path_planner_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
