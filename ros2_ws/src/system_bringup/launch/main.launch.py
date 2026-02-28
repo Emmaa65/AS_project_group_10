@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -15,8 +15,13 @@ def generate_launch_description():
     corrupt_state_estimate = LaunchConfiguration("corrupt_state_estimate")
     enable_perception = LaunchConfiguration("enable_perception")
     enable_rviz = LaunchConfiguration("enable_rviz")
+    enable_octomap = LaunchConfiguration("enable_octomap")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
+
+    save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
+    octomap_save_path = LaunchConfiguration("octomap_save_path")
+    octomap_autosave_interval_sec = LaunchConfiguration("octomap_autosave_interval_sec")
     enable_object = LaunchConfiguration("enable_object")
     
     right_image_topic = LaunchConfiguration("right_image_topic")
@@ -49,6 +54,11 @@ def generate_launch_description():
             description="Launch RViz for visualization"
         ),
         DeclareLaunchArgument(
+            "enable_octomap",
+            default_value="true",
+            description="Launch OctoMap server"
+        ),
+        DeclareLaunchArgument(
             "enable_controller",
             default_value="true",
             description="Launch controller node"
@@ -57,6 +67,24 @@ def generate_launch_description():
             "enable_waypoints",
             default_value="true",
             description="Launch waypoint mission nodes"
+        ),
+        DeclareLaunchArgument(
+            "save_octomap_on_shutdown",
+            default_value="true",
+            description="Save OctoMap to file when shutting down"
+        ),
+        DeclareLaunchArgument(
+            "octomap_save_path",
+            default_value=PathJoinSubstitution([
+                EnvironmentVariable("HOME"),
+                "octomap.bt",
+            ]),
+            description="Path to save OctoMap file (.bt or .ot)"
+        ),
+        DeclareLaunchArgument(
+            "octomap_autosave_interval_sec",
+            default_value="10.0",
+            description="Periodic OctoMap autosave interval in seconds (<=0 disables)"
         ),
         DeclareLaunchArgument(
             "enable_object",
@@ -139,6 +167,25 @@ def generate_launch_description():
         condition=IfCondition(enable_perception),
     )
 
+    octomap_server_node = Node(
+        package="octomap_server",
+        executable="octomap_server_node",
+        name="octomap_server",
+        output="screen",
+        parameters=[
+            {"frame_id": "world"},
+            {"resolution": 1.0},
+            {"sensor_model.max_range": 50.0},
+            {"save_on_shutdown": save_octomap_on_shutdown},
+            {"save_map_path": octomap_save_path},
+            {"autosave_interval_sec": octomap_autosave_interval_sec},
+        ],
+        remappings=[
+            ("cloud_in", "/camera/pointcloud"),
+        ],
+        condition=IfCondition(enable_octomap),
+    )
+
     controller_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -195,6 +242,7 @@ def generate_launch_description():
             controller_launch,
             waypoint_launch,
             depth_to_pointcloud_node,
+            octomap_server_node,
             rviz_node,
             object_detection_launch,
         ]
