@@ -53,6 +53,11 @@ public:
        
     }
 
+    //destructor to save objects to file on shutdown
+    ~ObjectToWorld() {
+        object_manager_.save_to_file("detected_objects.txt", this->get_logger());
+    }
+
     //callback for all 3 topics at once
     void callback(const sensor_msgs::msg::Image::ConstSharedPtr& semantic,
                   const sensor_msgs::msg::Image::ConstSharedPtr& depth,
