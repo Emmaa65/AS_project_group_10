@@ -12,6 +12,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common filters)
+find_package(pcl_conversions REQUIRED)
 
 # Add executable
 add_executable(pointcloud_to_occupancy_grid_node src/pointcloud_to_occupancy_grid_node.cpp)
@@ -23,9 +25,20 @@ ament_target_dependencies(pointcloud_to_occupancy_grid_node
   tf2_sensor_msgs
 )
 
+# Add outlier filter node
+add_executable(pointcloud_outlier_filter src/pointcloud_outlier_filter.cpp)
+ament_target_dependencies(pointcloud_outlier_filter
+  rclcpp
+  sensor_msgs
+  pcl_conversions
+)
+target_link_libraries(pointcloud_outlier_filter ${PCL_LIBRARIES})
+target_include_directories(pointcloud_outlier_filter PUBLIC ${PCL_INCLUDE_DIRS})
+
 # Install targets
 install(TARGETS
   pointcloud_to_occupancy_grid_node
+  pointcloud_outlier_filter
   DESTINATION lib/${PROJECT_NAME}
 )
 
