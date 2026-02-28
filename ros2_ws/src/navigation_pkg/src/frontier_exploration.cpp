@@ -316,16 +316,16 @@ private:
             
             double size_score = static_cast<double>(clusters[i].indices.size()) * 8.0; // Bonus for larger clusters
             double depth_bonus = -centroid.x() * 0.05; // Prefer deeper clusters (smaller X) with a smaller weight
-            double distance_score = std::min(distance, 200.0) * 0.5; // Bonus for being farther from drone, capped at 200m
+            double distance_penalty = distance * 2.0; // Penalize distant frontiers to explore nearby areas first
             double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
             if (centroid.x() > entrance_x) {
                 entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
             }
-            double score = size_score + depth_bonus + distance_score - entrance_penalty; // Combine factors
+            double score = size_score + depth_bonus - distance_penalty - entrance_penalty; // Combine factors
             RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, entrance_penalty=%.1f, total=%.1f",
+                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, dist_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
                 i, centroid.x(), clusters[i].indices.size(), distance,
-                size_score, depth_bonus, entrance_penalty, score);
+                size_score, depth_bonus, distance_penalty, entrance_penalty, score);
 
             if (score > best_score) {
                 best_score = score;
