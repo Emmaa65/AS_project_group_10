@@ -171,15 +171,19 @@ void ExplorationManager::handleWaypointNavigation() {
   // Monitor progress towards cave entrance
   double dist_to_entrance = (current_position_ - cave_entrance_).norm();
   
+  static int nav_log_count = 0;
+  if (++nav_log_count % 10 == 0) {  // Log every 10 calls (1 second at 10Hz)
+    RCLCPP_INFO(this->get_logger(),
+      "WAYPOINT_NAV: current=[%.2f, %.2f, %.2f], dist_to_entrance=%.2f m (tolerance=%.2f m)",
+      current_position_[0], current_position_[1], current_position_[2],
+      dist_to_entrance, entrance_reach_tolerance_);
+  }
+  
   if (dist_to_entrance < entrance_reach_tolerance_) {
     RCLCPP_INFO(this->get_logger(), 
-      "Cave entrance reached! Distance: %.2f m",
+      "Cave entrance reached! Distance: %.2f m, transitioning to WAITING_AT_ENTRANCE",
       dist_to_entrance);
     transitionToState(ExplorationState::WAITING_AT_ENTRANCE);
-  } else {
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-      "Flying to cave entrance. Distance remaining: %.2f m",
-      dist_to_entrance);
   }
 }
 
