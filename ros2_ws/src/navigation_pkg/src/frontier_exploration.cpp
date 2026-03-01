@@ -12,11 +12,8 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
-<<<<<<< HEAD
 #include <std_msgs/msg/bool.hpp>
-=======
 #include <visualization_msgs/msg/marker_array.hpp>
->>>>>>> 79d85e1 (added visualization of frontier goals in rviz)
 
 // PCL Headers
 #include <pcl/point_cloud.h>
@@ -96,12 +93,9 @@ private:
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
-<<<<<<< HEAD
     bool frontier_request_pending_ = false;
-=======
     std::deque<geometry_msgs::msg::Point> frontier_goal_history_;
     static constexpr size_t max_frontier_history_ = 5;
->>>>>>> 79d85e1 (added visualization of frontier goals in rviz)
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
