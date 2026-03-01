@@ -123,6 +123,28 @@ private:
     const double REVISIT_DECAY_S     = 60.0;
     const double MAX_REVISIT_PENALTY = 80.0;
 
+    // -------------------------------------------------------------------------
+    // Exploration branch tracking
+    //
+    // When the drone commits to a frontier we record that as the "active branch
+    // centre". On subsequent selections we add a continuity bonus to clusters
+    // that are close to this centre, so the drone keeps exploring in the same
+    // direction until the area is exhausted (no more novel clusters nearby).
+    // The branch is abandoned when the best cluster is far from the branch
+    // centre, which naturally happens once that arm of the cave runs out of
+    // frontiers.
+    // -------------------------------------------------------------------------
+    bool            has_active_branch_     = false;
+    Eigen::Vector3d active_branch_centre_{0.0, 0.0, 0.0};
+
+    // A cluster within this radius of the branch centre gets the continuity bonus
+    const double BRANCH_RADIUS           = 40.0;
+    // Bonus for staying on-branch — large enough to beat novelty of other branch
+    const double BRANCH_CONTINUITY_BONUS = 400.0; //300
+    // If NO cluster is within this radius of the branch centre, consider it
+    // exhausted and allow free re-selection
+    const double BRANCH_EXHAUST_RADIUS   = 60.0;
+
     // =========================================================================
     // Callbacks
     // =========================================================================
@@ -237,6 +259,11 @@ private:
         last_progress_pos_   = drone_pos;
         last_progress_time_  = this->now();
 
+        // Update active branch centre — keep exploring this spatial region
+        // until it runs out of frontiers
+        active_branch_centre_ = goal;
+        has_active_branch_    = true;
+
         publishGoal(goal, clusters[best].indices.size(), best);
     }
 
@@ -327,37 +354,78 @@ private:
 
         rclcpp::Time now = this->now();
 
+        // Check if the active branch is exhausted — i.e. no cluster sits within
+        // BRANCH_EXHAUST_RADIUS of the branch centre.  If exhausted, clear it so
+        // the drone is free to switch to the best available cluster anywhere.
+        if (has_active_branch_) {
+            bool any_near_branch = false;
+            for (size_t i = 0; i < clusters.size(); ++i) {
+                if ((centroids[i] - active_branch_centre_).norm() < BRANCH_EXHAUST_RADIUS) {
+                    any_near_branch = true;
+                    break;
+                }
+            }
+            if (!any_near_branch) {
+                RCLCPP_INFO(this->get_logger(),
+                    "[BRANCH] No clusters within %.1f m of branch centre "
+                    "(%.2f,%.2f,%.2f) — branch EXHAUSTED, allowing free re-selection",
+                    BRANCH_EXHAUST_RADIUS,
+                    active_branch_centre_.x(),
+                    active_branch_centre_.y(),
+                    active_branch_centre_.z());
+                has_active_branch_ = false;
+            }
+        }
+
         for (size_t i = 0; i < clusters.size(); ++i) {
             if (dists[i] < min_dist) continue;
 
-            // --- Cluster size: more frontier points = more unknown area ---
+            // --- Cluster size ---
             double size_score = static_cast<double>(clusters[i].indices.size());
 
-            // --- Proximity bonus: prefer closer clusters to minimise travel time.
-            //     Use inverse distance so very close clusters score highest.
-            //     Clamped to avoid division by zero. ---
+            // --- Proximity: prefer nearby clusters ---
             double proximity_bonus = 500.0 / std::max(dists[i], 1.0);
 
-            // --- Novelty bonus: how far is this cluster from ALL visited frontiers?
-            //     A cluster surrounded by unvisited space gets a high bonus.
-            //     We take the distance to the NEAREST visited frontier as the novelty
-            //     signal — far from any visited point means genuinely new territory. ---
-            double min_visited_dist = std::numeric_limits<double>::max();
-            for (const auto &v : visited_frontiers_) {
-                double d = (centroids[i] - v.position).norm();
-                min_visited_dist = std::min(min_visited_dist, d);
-            }
-            // If no visited frontiers yet, treat as maximally novel
-            if (visited_frontiers_.empty()) min_visited_dist = 200.0;
-            // Scale: 5 pts per metre away from the nearest visited frontier,
-            // capped so a single very-distant cluster can't dominate everything
+            // --- Depth bias: push drone away from cave entrance at the start.
+            //     The weight fades as the drone moves deeper so it doesn't
+            //     override the circular-cave exploration later.
+            //     entrance_x = -350, deeper = more negative X.
+            //     drone_dist_from_entrance: 0 at entrance, grows as drone goes in.
+            //     When drone is close to entrance the weight is ~1.0 (strong pull inward).
+            //     When drone is 150+ m deep the weight approaches 0 (no effect). ---
+            const double cave_entrance_x     = -350.0;
+            double drone_dist_from_entrance  = std::max(0.0, cave_entrance_x - drone_pos.x());
+            double depth_weight              = std::max(0.0, 1.0 - drone_dist_from_entrance / 150.0);
+            double depth_bias                = -(centroids[i].x() - cave_entrance_x) * 2.0 * depth_weight;
+
+            // --- Novelty: prefer clusters far from visited frontiers ---
+            double min_visited_dist = visited_frontiers_.empty()
+                ? 200.0
+                : std::numeric_limits<double>::max();
+            for (const auto &v : visited_frontiers_)
+                min_visited_dist = std::min(min_visited_dist,
+                                            (centroids[i] - v.position).norm());
             double novelty_bonus = std::min(min_visited_dist * 5.0, 400.0);
 
-            // --- Entrance penalty: keep drone inside the cave ---
+            // --- Branch continuity: reward staying near the active branch centre.
+            //     This is the key term that stops the drone flip-flopping at a
+            //     crossing.  Once a branch is chosen the drone sticks to it until
+            //     the branch is exhausted (no clusters within BRANCH_EXHAUST_RADIUS).
+            double continuity_bonus = 0.0;
+            if (has_active_branch_) {
+                double dist_to_branch = (centroids[i] - active_branch_centre_).norm();
+                if (dist_to_branch < BRANCH_RADIUS) {
+                    // Full bonus near the centre, tapering to 0 at BRANCH_RADIUS
+                    double t = 1.0 - dist_to_branch / BRANCH_RADIUS;
+                    continuity_bonus = BRANCH_CONTINUITY_BONUS * t;
+                }
+            }
+
+            // --- Entrance penalty ---
             double entrance_pen = (centroids[i].x() > entrance_x)
                 ? (centroids[i].x() - entrance_x) * 100.0 : 0.0;
 
-            // --- Time-decaying revisit penalty (immediate re-selection guard) ---
+            // --- Time-decaying revisit penalty ---
             double revisit_pen = 0.0;
             for (const auto &v : visited_frontiers_) {
                 double d = (centroids[i] - v.position).norm();
@@ -370,14 +438,15 @@ private:
             revisit_pen = std::min(revisit_pen, MAX_REVISIT_PENALTY);
 
             double score = size_score + proximity_bonus + novelty_bonus
-                         - entrance_pen - revisit_pen;
+                         + continuity_bonus + depth_bias - entrance_pen - revisit_pen;
 
             RCLCPP_INFO(this->get_logger(),
-                "  Cluster %zu: X=%.2f size=%zu dist=%.2f min_visited=%.1f | "
-                "size=%.0f prox=%.1f novelty=%.1f entrance=%.1f revisit=%.1f = %.1f",
+                "  Cluster %zu: X=%.2f size=%zu dist=%.2f min_vis=%.1f | "
+                "size=%.0f prox=%.1f novelty=%.1f cont=%.1f depth=%.1f "
+                "entrance=%.1f revisit=%.1f = %.1f",
                 i, centroids[i].x(), clusters[i].indices.size(), dists[i],
-                min_visited_dist == 200.0 ? -1.0 : min_visited_dist,
-                size_score, proximity_bonus, novelty_bonus,
+                min_visited_dist > 100.0 ? -1.0 : min_visited_dist,
+                size_score, proximity_bonus, novelty_bonus, continuity_bonus, depth_bias,
                 entrance_pen, revisit_pen, score);
 
             if (score > best_score) { best_score = score; best = i; }
