@@ -77,7 +77,7 @@ private:
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
-    double safety_margin_ = 2.0; // Minimum distance from obstacles (meters)
+    double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -304,7 +304,7 @@ private:
                 continue;
             }
             
-            // CRITICAL: Check if position is safe (5m from all obstacles)
+            // CRITICAL: Check if position is safe (safety_margin from all obstacles)
             if (!isSafePosition(centroid)) {
                 RCLCPP_INFO(this->get_logger(),
                     "Cluster %zu: X=%.2f, size=%zu - SKIPPED (too close to obstacles, <%.1fm safety margin)",

@@ -28,8 +28,8 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
   this->declare_parameter("min_frontier_z", -33.5); // Keep above cave floor
-  this->declare_parameter("collision_check_resolution", 0.5);
-  this->declare_parameter("robot_radius", 1.0);
+  this->declare_parameter("collision_check_resolution", 0.3);
+  this->declare_parameter("robot_radius", 0.3);  // Drone is 0.2x0.2m, add small safety margin
   
   max_planning_time_ = this->get_parameter("max_planning_time").as_double();
   step_size_ = this->get_parameter("step_size").as_double();
@@ -52,10 +52,6 @@ RRTPathPlanner::RRTPathPlanner()
   sub_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>(
     "current_state_est", 10,
     std::bind(&RRTPathPlanner::odometryCallback, this, std::placeholders::_1));
-  
-  sub_occupancy_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "octomap_point_cloud_centers", 10,
-    std::bind(&RRTPathPlanner::occupancyCallback, this, std::placeholders::_1));
   
   // OctoMap subscription for collision checking
   sub_octomap_ = this->create_subscription<octomap_msgs::msg::Octomap>(
@@ -125,11 +121,6 @@ void RRTPathPlanner::odometryCallback(const nav_msgs::msg::Odometry::SharedPtr m
     msg->pose.pose.position.x,
     msg->pose.pose.position.y,
     msg->pose.pose.position.z;
-}
-
-void RRTPathPlanner::occupancyCallback(const sensor_msgs::msg::PointCloud2::SharedPtr /*msg*/) {
-  // TODO: Store occupancy grid for collision checking
-  // For Phase 1, we ignore collision checking (assumes exploration is safe)
 }
 
 void RRTPathPlanner::octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
