@@ -75,6 +75,7 @@ private:
   rclcpp::Time last_plan_time_;
   rclcpp::Time trajectory_end_time_;  // Expected time when current trajectory completes
   double last_trajectory_duration_ = 0.0;
+  size_t last_intermediate_marker_count_ = 0;
   
   // OMPL RRT* parameters
   double collision_check_resolution_ = 0.3;  // Resolution for collision checking (meters)
