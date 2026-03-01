@@ -23,7 +23,9 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("max_iterations", 1000);
   this->declare_parameter("max_velocity", 10.0);  // Increased from 0.5
   this->declare_parameter("max_acceleration", 2.0);  // Increased from 0.3
-  this->declare_parameter("replan_threshold", 20.0);  // Meters
+  this->declare_parameter("replan_threshold", 0.5);  // Meters
+  this->declare_parameter("periodic_replan_interval_s", 60.0);  // Seconds
+  this->declare_parameter("periodic_replan_min_progress_m", 1.0);  // Meters
   this->declare_parameter("cave_entrance_x", -330.0);
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
@@ -37,6 +39,8 @@ RRTPathPlanner::RRTPathPlanner()
   max_velocity_ = this->get_parameter("max_velocity").as_double();
   max_acceleration_ = this->get_parameter("max_acceleration").as_double();
   replan_threshold_ = this->get_parameter("replan_threshold").as_double();
+  periodic_replan_interval_s_ = this->get_parameter("periodic_replan_interval_s").as_double();
+  periodic_replan_min_progress_m_ = this->get_parameter("periodic_replan_min_progress_m").as_double();
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
   cave_entrance_[2] = this->get_parameter("cave_entrance_z").as_double();
@@ -77,6 +81,10 @@ RRTPathPlanner::RRTPathPlanner()
   planning_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(500),
     std::bind(&RRTPathPlanner::planPath, this));
+
+  last_plan_time_ = this->get_clock()->now() - rclcpp::Duration::from_seconds(10.0);
+  trajectory_end_time_ = this->get_clock()->now();  // Initialize to now (no trajectory yet)
+  last_trajectory_duration_ = 0.0;
   
   RCLCPP_INFO(this->get_logger(),
     "RRT Path Planner initialized (step_size: %.2f m, max_v: %.2f m/s, max_a: %.2f m/s²)",
@@ -169,25 +177,51 @@ void RRTPathPlanner::planPath() {
   
   // Check if we need to replan:
   // 1. Target has changed significantly, OR
-  // 2. Drone is close to last planned target (goal reached)
+  // 2. Drone is close to current target frontier (goal reached)
   double target_change = (target_frontier_ - last_planned_target_).norm();
-  double distance_to_goal = (current_position_ - last_planned_target_).norm();
+  double distance_to_goal = (current_position_ - target_frontier_).norm();
+  rclcpp::Time now = this->get_clock()->now();
+  double time_since_last_plan = (now - last_plan_time_).seconds();
   
   bool target_changed = target_change >= replan_threshold_;
-  bool goal_reached = (distance_to_goal < 2.0 && last_planned_target_.norm() > 0.1);  // Reduced from 10.0 to 2.0 meters
+  bool goal_reached = (distance_to_goal < 2.0 && has_target_);
   bool first_plan = last_planned_target_.norm() < 0.1;
+  double progress_since_last_plan = distance_at_last_plan_ - distance_to_goal;
+  bool progress_stalled = (progress_since_last_plan < periodic_replan_min_progress_m_);
+  bool interval_elapsed = time_since_last_plan >= periodic_replan_interval_s_;
+  bool periodic_replan_due = (!target_changed && !goal_reached && !first_plan &&
+                              interval_elapsed && progress_stalled);
+  
+  // Check if trajectory should be complete but we're still far from goal
+  double time_since_trajectory_end = (now - trajectory_end_time_).seconds();
+  bool trajectory_finished = (last_trajectory_duration_ > 0.0 && time_since_trajectory_end > 2.0);
+  bool trajectory_replan_needed = (trajectory_finished && distance_to_goal > 2.5 && has_target_);
+
+  // Rolling progress window:
+  // if the interval elapsed and we made enough progress, reset baseline without replanning.
+  if (!target_changed && !goal_reached && !first_plan && !trajectory_replan_needed && 
+      interval_elapsed && !progress_stalled) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Skipping periodic replan: made progress %.2f m over %.1f s (threshold %.2f m)",
+      progress_since_last_plan, time_since_last_plan, periodic_replan_min_progress_m_);
+    last_plan_time_ = now;
+    distance_at_last_plan_ = distance_to_goal;
+  }
   
   // Log planning decision
   static int plan_log_count = 0;
   if (++plan_log_count % 20 == 0) {  // Log every 20 calls (~1 sec)
     RCLCPP_INFO(this->get_logger(),
-      "planPath check: target_changed=%d (%.2f>%.2f), goal_reached=%d (%.2f<2.0), first_plan=%d",
+      "planPath check: target_changed=%d (%.2f>%.2f), goal_reached=%d (%.2f<2.0), first_plan=%d, trajectory_replan=%d (%.1fs>2.0 && %.2fm>2.5), periodic=%d (%.1fs>%.1fs && progress %.2f<%.2f)",
       target_changed, target_change, replan_threshold_,
       goal_reached, distance_to_goal,
-      first_plan);
+      first_plan,
+      trajectory_replan_needed, time_since_trajectory_end, distance_to_goal,
+      periodic_replan_due, time_since_last_plan, periodic_replan_interval_s_,
+      progress_since_last_plan, periodic_replan_min_progress_m_);
   }
   
-  if (!target_changed && !goal_reached && !first_plan) {
+  if (!target_changed && !goal_reached && !first_plan && !trajectory_replan_needed && !periodic_replan_due) {
     return;
   }
   
@@ -197,8 +231,17 @@ void RRTPathPlanner::planPath() {
   } else if (target_changed) {
     RCLCPP_INFO(this->get_logger(),
       "Target changed by %.2f m, replanning", target_change);
+  } else if (trajectory_replan_needed) {
+    RCLCPP_INFO(this->get_logger(),
+      "Trajectory finished but still %.2f m from goal, replanning", distance_to_goal);
+  } else if (periodic_replan_due) {
+    RCLCPP_INFO(this->get_logger(),
+      "Periodic replan triggered after %.1f s without reaching goal", time_since_last_plan);
   }
   
+  last_plan_time_ = now;
+  distance_at_last_plan_ = distance_to_goal;
+
   RCLCPP_INFO(this->get_logger(),
     "Planning path from [%.2f, %.2f, %.2f] to [%.2f, %.2f, %.2f]",
     current_position_[0], current_position_[1], current_position_[2],
@@ -345,12 +388,15 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
       "RRT* found path with %ld states, length %.2f m",
       solution.getStateCount(), solution.length());
     
-    // Interpolate to reasonable number of waypoints (1 per meter)
-    if (solution.getStateCount() > 2 && solution.length() > 1.0) {
-      solution.interpolate(static_cast<unsigned int>(solution.length()) + 1);
+    // Interpolate to reasonable number of waypoints (1 per 4 meters for faster flight)
+    // Fewer waypoints = less accel/decel overhead = faster trajectories
+    const double waypoint_spacing = 4.0;  // meters
+    if (solution.getStateCount() > 2 && solution.length() > waypoint_spacing) {
+      unsigned int target_waypoints = static_cast<unsigned int>(solution.length() / waypoint_spacing) + 1;
+      solution.interpolate(std::max(target_waypoints, 3u));  // At least 3 waypoints (start, mid, end)
       RCLCPP_INFO(this->get_logger(),
-        "Interpolated path to %ld waypoints (~1 per meter)",
-        solution.getStateCount());
+        "Interpolated path to %ld waypoints (~%.1f m spacing)",
+        solution.getStateCount(), waypoint_spacing);
     }
     
     // Convert to Eigen vectors
@@ -485,6 +531,13 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
     segment_times = mav_trajectory_generation::estimateSegmentTimes(
       vertices, max_velocity_, max_acceleration_);
     
+    // Scale down segment times for faster flight (estimateSegmentTimes is conservative)
+    // Factor of 0.5 = 2x faster trajectories
+    const double time_scaling_factor = 0.5;
+    for (auto& time : segment_times) {
+      time *= time_scaling_factor;
+    }
+    
     // Log segment times for debugging
     double total_time = 0.0;
     for (size_t i = 0; i < segment_times.size(); ++i) {
@@ -493,8 +546,8 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
         "Segment %zu time: %.2f s", i, segment_times[i]);
     }
     RCLCPP_INFO(this->get_logger(),
-      "Total trajectory time: %.2f s for %zu segments",
-      total_time, segment_times.size());
+      "Total trajectory time: %.2f s for %zu segments (scaled by %.2f)",
+      total_time, segment_times.size(), time_scaling_factor);
     
     // Create trajectory using linear optimization (Phase 1)
     // For Phase 1, linear optimization is sufficient for straight-line paths
@@ -524,6 +577,10 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
     msg.header.frame_id = "world";
     
     pub_trajectory_->publish(msg);
+    
+    // Track trajectory duration for replan trigger when trajectory finishes
+    last_trajectory_duration_ = total_time;
+    trajectory_end_time_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(total_time);
     
     RCLCPP_DEBUG(this->get_logger(), 
       "Published trajectory with %zu segments",

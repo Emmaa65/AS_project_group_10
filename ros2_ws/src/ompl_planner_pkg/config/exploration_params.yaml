@@ -1,9 +1,9 @@
 exploration_manager:
   ros__parameters:
     # Cave entrance position (must match planner waypoint!)
-    cave_entrance_x: -175.0
+    cave_entrance_x: -330.0
     cave_entrance_y: 10.0
-    cave_entrance_z: 12.0
+    cave_entrance_z: 20.0
     
     # Tolerance for considering the drone "at" the cave entrance [meters]
     entrance_reach_tolerance: 1.5
@@ -31,9 +31,13 @@ rrt_path_planner:
     
     # Replanning
     replan_threshold: 0.5        # meters (only replan if target moves more than this) - aggressive for cave exploration
+    periodic_replan_interval_s: 60.0   # seconds (safety replan only)
+    periodic_replan_min_progress_m: 1.0  # meters (only periodic replan if progress is below this over interval)
     
     # Cave parameters
-    cave_entrance_x: -330.0      # Cave entrance X position
+    cave_entrance_x: -330.0      # Cave entrance X position (must match exploration_manager!)
+    cave_entrance_y: 10.0
+    cave_entrance_z: 20.0
     min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
     
     # Collision checking parameters
