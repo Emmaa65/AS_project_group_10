@@ -512,14 +512,6 @@ private:
             frontier_goal_history_.pop_front();
         }
 
-        static const std::array<std::array<float, 3>, max_frontier_history_> colors = {{
-            {{1.0f, 0.2f, 0.2f}},
-            {{1.0f, 0.6f, 0.0f}},
-            {{1.0f, 1.0f, 0.0f}},
-            {{0.2f, 0.8f, 1.0f}},
-            {{0.7f, 0.2f, 1.0f}}
-        }};
-
         visualization_msgs::msg::MarkerArray marker_array;
 
         for (size_t index = 0; index < frontier_goal_history_.size(); ++index) {
@@ -532,12 +524,14 @@ private:
             marker.action = visualization_msgs::msg::Marker::ADD;
             marker.pose.position = frontier_goal_history_[index];
             marker.pose.orientation.w = 1.0;
-            marker.scale.x = 0.35;
-            marker.scale.y = 0.35;
-            marker.scale.z = 0.35;
-            marker.color.r = colors[index][0];
-            marker.color.g = colors[index][1];
-            marker.color.b = colors[index][2];
+            const bool is_latest_marker = (index + 1 == frontier_goal_history_.size());
+            const double marker_size = is_latest_marker ? 0.5 : 0.35;
+            marker.scale.x = marker_size;
+            marker.scale.y = marker_size;
+            marker.scale.z = marker_size;
+            marker.color.r = is_latest_marker ? 1.0f : 0.0f;
+            marker.color.g = is_latest_marker ? 0.2f : 0.4f;
+            marker.color.b = is_latest_marker ? 0.2f : 1.0f;
             marker.color.a = 0.95f;
             marker.lifetime = rclcpp::Duration::from_seconds(0.0);
             marker_array.markers.push_back(marker);
