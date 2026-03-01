@@ -149,16 +149,14 @@ private:
     // Compute centroid (XY average of frontier cluster)
     Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[best_idx]);
     
-    // Adjust Z to be in the middle of the cave at this XY position
-    Eigen::Vector3d adjusted_centroid = adjustZToMidHeight(centroid);
-    
+    // Use centroid directly without Z adjustment
+    // Z-adjustment to "safe defaults" can create unreachable target positions
     RCLCPP_INFO(this->get_logger(), 
-        "Selected cluster %zu (size=%zu, X=%.2f): centroid: (%.2f, %.2f, %.2f) -> adjusted: (%.2f, %.2f, %.2f)",
+        "Selected cluster %zu (size=%zu, X=%.2f): centroid: (%.2f, %.2f, %.2f)",
         best_idx, cluster_indices[best_idx].indices.size(), centroid.x(),
-        centroid.x(), centroid.y(), centroid.z(),
-        adjusted_centroid.x(), adjusted_centroid.y(), adjusted_centroid.z());
+        centroid.x(), centroid.y(), centroid.z());
     
-    publishGoalFromCentroid(adjusted_centroid, cluster_indices[best_idx].indices.size());
+    publishGoalFromCentroid(centroid, cluster_indices[best_idx].indices.size());
     }
 
 
@@ -425,91 +423,6 @@ private:
             }
         }
         return true; // No obstacles found within safety margin
-    }
-
-    // Adjust Z coordinate to be in the middle of the cave at the given XY position
-    // by finding the highest and lowest occupied voxels
-    Eigen::Vector3d adjustZToMidHeight(const Eigen::Vector3d &centroid) {
-        Eigen::Vector3d adjusted = centroid;
-        
-        // Search range in Z direction
-        double search_z_min = -50.0;  // Minimum expected Z in cave
-        double search_z_max = 100.0;  // Maximum expected Z in cave
-        double z_step = 1.0;          // Step size for Z search (octree resolution)
-        
-        double z_min_occupied = search_z_max;
-        double z_max_occupied = search_z_min;
-        bool found_any = false;
-        
-        // Use the appropriate octree
-        if (color_octree_) {
-            auto &ct = *color_octree_;
-            double res = ct.getResolution();
-            
-            // Search vertically at the centroid's XY position
-            for (double z = search_z_min; z <= search_z_max; z += res) {
-                auto node = ct.search(centroid.x(), centroid.y(), z);
-                if (node && ct.isNodeOccupied(node)) {
-                    found_any = true;
-                    if (z < z_min_occupied) z_min_occupied = z;
-                    if (z > z_max_occupied) z_max_occupied = z;
-                }
-            }
-        } else if (octree_) {
-            auto &ot = *octree_;
-            double res = ot.getResolution();
-            
-            // Search vertically at the centroid's XY position
-            for (double z = search_z_min; z <= search_z_max; z += res) {
-                auto node = ot.search(centroid.x(), centroid.y(), z);
-                if (node && ot.isNodeOccupied(node)) {
-                    found_any = true;
-                    if (z < z_min_occupied) z_min_occupied = z;
-                    if (z > z_max_occupied) z_max_occupied = z;
-                }
-            }
-        }
-        
-        // Set Z to safe flying height
-        if (found_any) {
-            double height = z_max_occupied - z_min_occupied;
-            
-            // Safety checks
-            const double min_passage_height = 3.0;  // Minimum clearance needed
-            const double max_flight_z = 35.0;        // Maximum safe altitude
-            
-            if (height < min_passage_height) {
-                RCLCPP_WARN(this->get_logger(), 
-                    "Passage too narrow at (%.2f, %.2f): height=%.2fm (floor=%.2f, ceiling=%.2f), using original Z=%.2f",
-                    centroid.x(), centroid.y(), height, z_min_occupied, z_max_occupied, centroid.z());
-                // Keep original Z if passage is too narrow
-                return adjusted;
-            }
-            
-            // Fly at 50% height between floor and ceiling (closer to floor for safety)
-            //adjusted.z() = z_min_occupied + height * 0.5;
-            adjusted.z() = (z_min_occupied + z_max_occupied) / 2.0;
-            
-            // Cap at maximum safe altitude
-            if (adjusted.z() > max_flight_z) {
-                RCLCPP_WARN(this->get_logger(),
-                    "Adjusted Z=%.2f exceeds max safe altitude %.2f, capping",
-                    adjusted.z(), max_flight_z);
-                adjusted.z() = max_flight_z;
-            }
-            
-            RCLCPP_INFO(this->get_logger(), 
-                "Adjusted Z from %.2f to %.2f (floor=%.2f, ceiling=%.2f, height=%.2fm)",
-                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied, height);
-        } else {
-            RCLCPP_WARN(this->get_logger(),
-                "No occupied voxels found in Z-column at (%.2f, %.2f), using safe default Z=15.0",
-                centroid.x(), centroid.y());
-            // Use safe default height if no obstacles found
-            adjusted.z() = 15.0;
-        }
-        
-        return adjusted;
     }
 
     void publishGoalFromCentroid(const Eigen::Vector3d &centroid, size_t cluster_size) {
