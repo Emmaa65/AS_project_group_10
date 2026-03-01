@@ -13,7 +13,7 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
 endif()
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wno-sign-compare -Wno-unused-variable)
 endif()
 
 # ==== Dependencies ====
@@ -29,26 +29,17 @@ find_package(yaml-cpp REQUIRED)
 find_package(mav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(gflags REQUIRED)
-
-ExternalProject_Add(glog_ext
-  GIT_REPOSITORY https://github.com/google/glog.git
-  GIT_TAG v0.3.5
-  UPDATE_COMMAND ""
-  CMAKE_ARGS
-    -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}
-    -DCMAKE_BUILD_TYPE:STRING=Release
-    -DBUILD_SHARED_LIBS=ON
-    -DWITH_GFLAGS=OFF              # optional
-    -DWITH_GTEST=OFF               # <--- important
-    -DBUILD_TESTING=OFF            # <--- important
-  BUILD_COMMAND $(MAKE)
-  INSTALL_COMMAND $(MAKE) install
-)
+find_package(glog REQUIRED)
 
 ExternalProject_Add(nlopt_ext
   GIT_REPOSITORY https://github.com/stevengj/nlopt.git
   GIT_TAG v2.7.1              # or another stable tag if you prefer
+  GIT_PROGRESS OFF
   UPDATE_COMMAND ""
+  LOG_DOWNLOAD ON
+  LOG_CONFIGURE ON
+  LOG_BUILD ON
+  LOG_INSTALL ON
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}
     -DCMAKE_BUILD_TYPE:STRING=Release
@@ -59,24 +50,20 @@ ExternalProject_Add(nlopt_ext
     -DNLOPT_MATLAB=OFF
     -DNLOPT_GUILE=OFF
     -DNLOPT_SWIG=OFF
-    -DNLOPT_MATHEMATICA=OFF
+    -Wno-deprecated
+    -DCMAKE_C_FLAGS=-w
   BUILD_COMMAND $(MAKE)
   INSTALL_COMMAND $(MAKE) install
 )
-
-set(GLOG_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
-set(GLOG_LIBRARY_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 
 set(NLOPT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(NLOPT_LIBRARY_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 
 include_directories(
   ${EIGEN3_INCLUDE_DIRS}
-  ${GLOG_INCLUDE_DIR}
   ${NLOPT_INCLUDE_DIR}
 )
 link_directories(
-  ${GLOG_LIBRARY_DIR} 
   ${NLOPT_LIBRARY_DIR}
 )
 
@@ -95,12 +82,11 @@ add_library(${PROJECT_NAME} SHARED
 )
 
 add_dependencies(${PROJECT_NAME} 
-  glog_ext
   nlopt_ext
 )
 
 target_link_libraries(${PROJECT_NAME}
-    glog
+  glog::glog
     nlopt
     yaml-cpp
 )
@@ -112,7 +98,6 @@ target_include_directories(${PROJECT_NAME}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen-checks/include>
     $<INSTALL_INTERFACE:include>
-    ${GLOG_INCLUDE_DIR}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -200,15 +185,16 @@ install(
   DESTINATION include
 )
 
-# install nlopt and glog libraries
+# install nlopt library
 install(DIRECTORY ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/
   DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  FILES_MATCHING PATTERN "libnlopt.*" PATTERN "libglog.*"
+  FILES_MATCHING PATTERN "libnlopt.*"
 )
 
 # ==== Export for downstream packages ====
 ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include)
+ament_export_dependencies(glog)
 ament_export_dependencies(yaml-cpp)
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 

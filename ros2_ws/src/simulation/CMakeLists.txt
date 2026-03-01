@@ -43,12 +43,17 @@ include(GNUInstallDirs)  # gives CMAKE_INSTALL_{BINDIR,LIBDIR,…}
 # libsocket external dependency (installed into current install prefix)
 ExternalProject_Add(libsocket
   GIT_REPOSITORY https://github.com/dermesser/libsocket
+  GIT_PROGRESS OFF
   UPDATE_COMMAND ""
+  LOG_DOWNLOAD ON
+  LOG_CONFIGURE ON
+  LOG_BUILD ON
+  LOG_INSTALL ON
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}
              -DCMAKE_BUILD_TYPE:STRING=Release
              -DBUILD_SHARED_LIBS=ON
              -DCMAKE_POLICY_DEFAULT_CMP0077=NEW
-             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+             -Wno-dev
   BUILD_COMMAND $(MAKE)
   INSTALL_COMMAND $(MAKE) install
 )

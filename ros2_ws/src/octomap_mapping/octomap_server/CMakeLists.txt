@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.5)
 project(octomap_server)
 
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "Suppress CMake developer warnings")
+
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +16,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+set(PCL_FIND_QUIETLY TRUE)
 find_package(PCL REQUIRED)
 include_directories(${PCL_INCLUDE_DIRS})
 
@@ -123,6 +130,7 @@ if(BUILD_TESTING)
 endif()
 
 ament_auto_package(
+  USE_SCOPED_HEADER_INSTALL_DIR
   INSTALL_TO_SHARE
     launch
     params
