@@ -105,6 +105,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /octomap_binary
       Value: true
+    - Alpha: 1.0
+      Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Frontier Goals (Last 5)
+      Namespaces:
+        frontier_goal_history: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /exploration/frontier_goal_history_markers
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15.0
