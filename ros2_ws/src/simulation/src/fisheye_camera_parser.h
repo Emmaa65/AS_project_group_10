@@ -6,6 +6,9 @@
 
 class FisheyeCameraParser : public RGBCameraParser {
 public:
+  explicit FisheyeCameraParser(const rclcpp::Node::SharedPtr& node = nullptr)
+  : RGBCameraParser(node) {}
+
   virtual bool ParseMessage(const UnityHeader& header, 
                             TCPStreamReader& stream_reader,
                             double time_offset) override {

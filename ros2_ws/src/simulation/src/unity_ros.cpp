@@ -24,16 +24,16 @@ int main(int argc, char *argv[])
   stream_reader.WaitConnect();
   RCLCPP_INFO(node->get_logger(), "Got a connection...");
 
-  IMUParser imu_parser;
+  IMUParser imu_parser(node);
   UnityCommandStream command_stream("127.0.0.1", "9999");
 
   std::vector<std::shared_ptr<UnityStreamParser>> stream_parsers(UnityMessageType::MESSAGE_TYPE_COUNT);
 
-  stream_parsers[UnityMessageType::UNITY_STATE] = std::make_shared<TrueStateParser>();
-  stream_parsers[UnityMessageType::UNITY_IMU] = std::make_shared<IMUParser>();
-  stream_parsers[UnityMessageType::UNITY_CAMERA] = std::make_shared<RGBCameraParser>();
-  stream_parsers[UnityMessageType::UNITY_DEPTH] = std::make_shared<DepthCameraParser>();
-  stream_parsers[UnityMessageType::UNITY_FISHEYE] = std::make_shared<FisheyeCameraParser>();
+  stream_parsers[UnityMessageType::UNITY_STATE] = std::make_shared<TrueStateParser>(node);
+  stream_parsers[UnityMessageType::UNITY_IMU] = std::make_shared<IMUParser>(node);
+  stream_parsers[UnityMessageType::UNITY_CAMERA] = std::make_shared<RGBCameraParser>(node);
+  stream_parsers[UnityMessageType::UNITY_DEPTH] = std::make_shared<DepthCameraParser>(node);
+  stream_parsers[UnityMessageType::UNITY_FISHEYE] = std::make_shared<FisheyeCameraParser>(node);
   
   while (stream_reader.Good() && rclcpp::ok()) {    
     uint32_t magic = stream_reader.ReadUInt();

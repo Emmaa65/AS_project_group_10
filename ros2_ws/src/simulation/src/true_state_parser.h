@@ -11,8 +11,12 @@
 
 class TrueStateParser : public UnityStreamParser {
 public:
-  TrueStateParser() {
-    node_ = rclcpp::Node::make_shared("true_state_parser");
+  explicit TrueStateParser(const rclcpp::Node::SharedPtr& node = nullptr) {
+    if (node) {
+      node_ = node;
+    } else {
+      node_ = rclcpp::Node::make_shared("true_state_parser");
+    }
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node_);
   }
 

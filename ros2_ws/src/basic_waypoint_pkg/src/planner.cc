@@ -116,11 +116,20 @@ bool BasicPlanner::planTrajectory(
   /******* Configure trajectory (intermediate waypoints) *******/
   RCLCPP_INFO(node_->get_logger(), "Creating predefined waypoints to the entrance of the cave");
   
+    // so the vehicle pauses briefly before continuing.
+  middle = mav_trajectory_generation::Vertex(dimension);
+  middle.addConstraint(
+    mav_trajectory_generation::derivative_order::POSITION,
+    Eigen::Vector3d(-40.0, 10.0, 10.0));
+
+  vertices.push_back(middle);
   
   middle = mav_trajectory_generation::Vertex(dimension);
   middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
                       Eigen::Vector3d(-175.0, 10.0, 12.0));
   vertices.push_back(middle);
+
+  // Add one more waypoint at the same location with zero velocity
 
     
     
