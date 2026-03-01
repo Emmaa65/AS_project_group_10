@@ -71,8 +71,8 @@ private:
     geometry_msgs::msg::Pose current_pose_;
     geometry_msgs::msg::Twist current_velocity_;
     // Clustering parameters
-    double cluster_tolerance_ = 5; // meters
-    int min_cluster_size_ = 10;
+    double cluster_tolerance_ = 3.0; // meters - distance threshold for points to belong to same cluster
+    int min_cluster_size_ = 50;  // Ignore small clusters (noise/small gaps)
     int max_cluster_size_ = 10000;
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330

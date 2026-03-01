@@ -174,14 +174,14 @@ void RRTPathPlanner::planPath() {
   double distance_to_goal = (current_position_ - last_planned_target_).norm();
   
   bool target_changed = target_change >= replan_threshold_;
-  bool goal_reached = (distance_to_goal < 10.0 && last_planned_target_.norm() > 0.1);
+  bool goal_reached = (distance_to_goal < 2.0 && last_planned_target_.norm() > 0.1);  // Reduced from 10.0 to 2.0 meters
   bool first_plan = last_planned_target_.norm() < 0.1;
   
   // Log planning decision
   static int plan_log_count = 0;
   if (++plan_log_count % 20 == 0) {  // Log every 20 calls (~1 sec)
     RCLCPP_INFO(this->get_logger(),
-      "planPath check: target_changed=%d (%.2f>%.2f), goal_reached=%d (%.2f<10), first_plan=%d",
+      "planPath check: target_changed=%d (%.2f>%.2f), goal_reached=%d (%.2f<2.0), first_plan=%d",
       target_changed, target_change, replan_threshold_,
       goal_reached, distance_to_goal,
       first_plan);
