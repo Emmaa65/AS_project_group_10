@@ -332,18 +332,27 @@ private:
             
             found_distant_cluster = true;
             
-            double size_score = static_cast<double>(clusters[i].indices.size()) * 8.0; // Bonus for larger clusters
-            double depth_bonus = -centroid.x() * 0.05; // Prefer deeper clusters (smaller X) with a smaller weight
-            double distance_penalty = distance * 2.0; // Penalize distant frontiers to explore nearby areas first
+            double size_score = static_cast<double>(clusters[i].indices.size()) * 5.0; // Bonus for larger clusters (reduced from 8.0)
+            double depth_bonus = -centroid.x() * 0.4; // Prefer deeper clusters (increased from 0.05 to strongly favor depth)
+            double distance_penalty = distance * 3.5; // Penalize distant frontiers (increased from 2.0)
+            
+            // Add backtracking penalty: if cluster is backwards (less negative X) from current position, penalize it
+            double backtrack_penalty = 0.0;
+            if (centroid.x() > drone_pos.x()) {
+                // Cluster is backwards (towards entrance) from current position
+                double backtrack_distance = centroid.x() - drone_pos.x();
+                backtrack_penalty = backtrack_distance * 20.0; // Very strong penalty to avoid backtracking
+            }
+            
             double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
             if (centroid.x() > entrance_x) {
                 entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
             }
-            double score = size_score + depth_bonus - distance_penalty - entrance_penalty; // Combine factors
+            double score = size_score + depth_bonus - distance_penalty - backtrack_penalty - entrance_penalty; // Combine factors
             RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, dist_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
+                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, dist_penalty=%.1f, backtrack_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
                 i, centroid.x(), clusters[i].indices.size(), distance,
-                size_score, depth_bonus, distance_penalty, entrance_penalty, score);
+                size_score, depth_bonus, distance_penalty, backtrack_penalty, entrance_penalty, score);
 
             if (score > best_score) {
                 best_score = score;
