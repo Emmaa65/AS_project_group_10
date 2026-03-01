@@ -24,6 +24,8 @@ sudo apt install -y \
     ros-jazzy-tf2-eigen \
     ros-jazzy-mav-msgs \
     ros-jazzy-nav-msgs \
+    ros-jazzy-nav2-msgs \
+    ros-jazzy-nav2-util \
     ros-jazzy-trajectory-msgs \
     ros-jazzy-visualization-msgs \
     ros-jazzy-std-msgs \
@@ -33,13 +35,20 @@ sudo apt install -y \
     ros-jazzy-geometry-msgs \
     ros-jazzy-depth-image-proc \
     ros-jazzy-octomap \
+    ros-jazzy-octomap-ros \
+    ros-jazzy-octomap-rviz-plugins \
+    libgflags-dev \
+    libgoogle-glog-dev \
     ros-jazzy-pcl-ros \
     ros-jazzy-pcl-conversions \
     libeigen3-dev \
     libnlopt-dev \
     libnlopt-cxx-dev \
     liboctomap-dev \
-    libopencv-dev
+    libopencv-dev \
+    ros-jazzy-rviz2 \
+    libompl-dev \
+    ros-jazzy-vision-opencv
 ```
 for trajectory planning so far: 
 sudo apt install libompl-dev
