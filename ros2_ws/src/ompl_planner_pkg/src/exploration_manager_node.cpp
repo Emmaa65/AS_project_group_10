@@ -90,10 +90,19 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
     return; // Ignore this frontier
   }
   
-  selected_frontier_ = frontier;
+  // Only reset failure counter if this is a NEW frontier (position changed significantly)
+  const double FRONTIER_CHANGE_THRESHOLD = 0.5; // meters
+  double frontier_change = (frontier.position - selected_frontier_.position).norm();
   
-  // Reset planning failures counter when receiving a new frontier from frontier_exploration
-  planning_failures_ = 0;
+  if (frontier_change > FRONTIER_CHANGE_THRESHOLD) {
+    // This is a new frontier, reset the planning failure counter
+    planning_failures_ = 0;
+    RCLCPP_DEBUG(this->get_logger(),
+      "New frontier detected (change: %.2f m), resetting failure counter",
+      frontier_change);
+  }
+  
+  selected_frontier_ = frontier;
 }
 
 void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -234,8 +243,22 @@ void ExplorationManager::handleAutonomousExploration() {
   }
   
   if (selected_frontier_.distance > 0.1) {
-    // We have a valid frontier from frontier_exploration
-    publishTargetFrontier(selected_frontier_);
+    // Only publish when frontier target changed significantly.
+    // This avoids re-triggering RRT planning on the same frontier at 10 Hz.
+    const double TARGET_PUBLISH_THRESHOLD = 0.5; // meters
+    const double target_change = (selected_frontier_.position - last_sent_frontier_).norm();
+    const bool first_publish = last_sent_frontier_.norm() < 0.1;
+
+    if (first_publish || target_change > TARGET_PUBLISH_THRESHOLD) {
+      publishTargetFrontier(selected_frontier_);
+      last_sent_frontier_ = selected_frontier_.position;
+      RCLCPP_INFO(this->get_logger(),
+        "Published new target frontier [%.2f, %.2f, %.2f] (change: %.2f m)",
+        selected_frontier_.position[0],
+        selected_frontier_.position[1],
+        selected_frontier_.position[2],
+        target_change);
+    }
   } else {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
       "No frontier available (distance=%.2f)",
