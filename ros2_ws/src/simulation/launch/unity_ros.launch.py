@@ -34,7 +34,6 @@ def generate_launch_description():
     unity_ros_node = Node(
         package="simulation",
         executable="unity_ros",
-        name="unity_ros",
         output="screen",
         remappings=[
             ("Quadrotor/Sensors/IMU/pose", pose_topic),
