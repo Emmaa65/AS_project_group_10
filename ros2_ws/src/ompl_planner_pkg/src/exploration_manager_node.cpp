@@ -262,6 +262,7 @@ void ExplorationManager::handleAutonomousExploration() {
       selected_frontier_.distance);
     selected_frontier_.distance = 0.0;
     planning_failures_ = 0;
+    last_sent_frontier_ = Eigen::Vector3d::Zero();  // Reset frontier tracking to force republish
     requestNewFrontier("frontier reached");
     return;
   }
@@ -287,7 +288,7 @@ void ExplorationManager::handleAutonomousExploration() {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
       "No frontier available (distance=%.2f)",
       selected_frontier_.distance);
-    const double request_cooldown_s = 1.0;
+    const double request_cooldown_s = 0.5;  // Reduced from 1.0 to be more responsive
     double elapsed_since_request = (this->get_clock()->now() - last_frontier_request_time_).seconds();
     if (!frontier_request_pending_ && elapsed_since_request >= request_cooldown_s) {
       requestNewFrontier("no active frontier");

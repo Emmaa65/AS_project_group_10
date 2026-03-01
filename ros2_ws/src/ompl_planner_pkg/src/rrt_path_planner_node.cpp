@@ -227,7 +227,12 @@ void RRTPathPlanner::planPath() {
   
   if (goal_reached) {
     RCLCPP_INFO(this->get_logger(),
-      "Goal reached (dist=%.2f m), planning to next frontier", distance_to_goal);
+      "Goal reached (dist=%.2f m). Clearing target and waiting for next frontier from exploration_manager",
+      distance_to_goal);
+    // Clear the target so we stop replanning to the same frontier
+    has_target_ = false;
+    publishPlanningResult(true);  // Signal success to exploration_manager
+    return;  // Don't replan - wait for next frontier
   } else if (target_changed) {
     RCLCPP_INFO(this->get_logger(),
       "Target changed by %.2f m, replanning", target_change);
