@@ -67,8 +67,6 @@ def generate_launch_description():
             ("target_frontier", "target_frontier"),
             # Subscribe to drone odometry
             ("current_state_est", "current_state_est"),
-            # Subscribe to occupancy for collision checking
-            ("octomap_point_cloud_centers", "octomap_point_cloud_centers"),
             # Publish trajectory to executor
             ("trajectory", "trajectory"),
             # Publish planning result to exploration_manager

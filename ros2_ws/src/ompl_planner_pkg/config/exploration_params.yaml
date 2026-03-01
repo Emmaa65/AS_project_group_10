@@ -36,5 +36,9 @@ rrt_path_planner:
     cave_entrance_x: -330.0      # Cave entrance X position
     min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
     
+    # Collision checking parameters
+    collision_check_resolution: 0.3  # meters (resolution for checking collision-free path)
+    robot_radius: 0.3                # meters (safety sphere around drone center; drone is 0.2x0.2m)
+    
     # Logging level
     log_level: "INFO"

@@ -1,0 +1,42 @@
+# Perception Pipeline Configuration
+# Controls filtering and OctoMap settings for the cave exploration system
+
+pointcloud_filtering:
+  # Enable point cloud outlier filtering
+  # - true:  Use filtered point cloud (VoxelGrid + StatisticalOutlierRemoval)
+  #          Slower but cleaner OctoMap (fewer noise artifacts through wall gaps)
+  # - false: Use raw point cloud directly (faster, may have more noise)
+  enabled: false
+  
+  # Voxel downsampling parameters (applied before statistical filtering)
+  voxel_leaf_size: 0.05  # 5cm voxels (balanced: speed + detail)
+                         # Smaller (e.g., 0.02) = more detail but slower
+                         # Larger (e.g., 0.10) = faster but less detail
+  
+  # Statistical outlier removal parameters
+  mean_k: 10             # Number of neighbors to consider (reduced from 20 for speed)
+                         # Lower = faster but may remove more points
+  stddev_mul_thresh: 1.0 # Standard deviation threshold (reduced from 1.5)
+                         # Lower = more aggressive outlier removal
+
+octomap:
+  # OctoMap resolution (meters) - voxel size in the occupancy map
+  resolution: 2.0        # 2m voxels provide good coverage with low memory
+                         # Smaller (e.g., 1.0) = more detail but more memory/computation
+  
+  # Sensor model parameters
+  max_range: 75.0        # Maximum range for depth sensor (meters)
+  
+  # OctoMap save settings
+  save_on_shutdown: true
+  save_path: ~/octomap.bt
+
+# Usage:
+# ------
+# To disable filtering (use raw point cloud):
+#   ros2 launch system_bringup main.launch.py enable_pointcloud_filter:=false
+#
+# To enable filtering (use filtered point cloud):
+#   ros2 launch system_bringup main.launch.py enable_pointcloud_filter:=true
+#
+# The corresponding filter parameters will be applied automatically.

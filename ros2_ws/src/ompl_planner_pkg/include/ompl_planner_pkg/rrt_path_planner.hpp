@@ -10,7 +10,6 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -43,7 +42,6 @@ private:
   // ROS2 Subscribers/Publishers
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr sub_target_frontier_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odometry_;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_occupancy_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_state_;
   rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
   
@@ -73,8 +71,8 @@ private:
   double replan_threshold_ = 2.0; // Only replan if target moves more than this
   
   // OMPL RRT* parameters
-  double collision_check_resolution_ = 0.5;  // Resolution for collision checking (meters)
-  double robot_radius_ = 1.0;  // Conservative robot radius for safety (meters)
+  double collision_check_resolution_ = 0.3;  // Resolution for collision checking (meters)
+  double robot_radius_ = 0.3;  // Safety sphere around drone (meters); drone is 0.2x0.2m
   
   // OctoMap for collision checking
   std::shared_ptr<octomap::OcTree> octree_;
@@ -83,7 +81,6 @@ private:
   // Callbacks
   void targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
   void odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
-  void occupancyCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg);
   void stateCallback(const std_msgs::msg::String::SharedPtr msg);
   void planPath();
