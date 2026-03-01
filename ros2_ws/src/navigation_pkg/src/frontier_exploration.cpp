@@ -2,6 +2,8 @@
 #include <memory>
 #include <string>
 #include <algorithm>
+#include <array>
+#include <deque>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -11,6 +13,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 // PCL Headers
 #include <pcl/point_cloud.h>
@@ -60,6 +63,10 @@ public:
             "/exploration/frontier_goal", 10
         );
 
+        frontier_goal_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            "/exploration/frontier_goal_history_markers", 10
+        );
+
 
     }
     
@@ -72,6 +79,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontier_request_sub_;
     rclcpp::TimerBase::SharedPtr exploration_timer_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr frontier_goal_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr frontier_goal_markers_pub_;
     std::mutex mutex_;
     // Drone state
     std::mutex drone_state_mutex_;
@@ -86,6 +94,8 @@ private:
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
     bool frontier_request_pending_ = false;
+    std::deque<geometry_msgs::msg::Point> frontier_goal_history_;
+    static constexpr size_t max_frontier_history_ = 5;
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -494,10 +504,65 @@ private:
         goal.pose.orientation.w = std::cos(half_yaw);
         
         frontier_goal_pub_->publish(goal);
+        publishFrontierHistoryMarkers(goal.pose.position);
         
         RCLCPP_INFO(this->get_logger(), 
             "Published frontier goal at (%.2f, %.2f, %.2f) with yaw=%.1f° from cluster size %zu", 
             centroid.x(), centroid.y(), centroid.z(), yaw * 180.0 / M_PI, cluster_size);
+    }
+
+    void publishFrontierHistoryMarkers(const geometry_msgs::msg::Point &new_goal_position) {
+        if (!frontier_goal_markers_pub_) {
+            return;
+        }
+
+        frontier_goal_history_.push_back(new_goal_position);
+        if (frontier_goal_history_.size() > max_frontier_history_) {
+            frontier_goal_history_.pop_front();
+        }
+
+        static const std::array<std::array<float, 3>, max_frontier_history_> colors = {{
+            {{1.0f, 0.2f, 0.2f}},
+            {{1.0f, 0.6f, 0.0f}},
+            {{1.0f, 1.0f, 0.0f}},
+            {{0.2f, 0.8f, 1.0f}},
+            {{0.7f, 0.2f, 1.0f}}
+        }};
+
+        visualization_msgs::msg::MarkerArray marker_array;
+
+        for (size_t index = 0; index < frontier_goal_history_.size(); ++index) {
+            visualization_msgs::msg::Marker marker;
+            marker.header.stamp = this->now();
+            marker.header.frame_id = "world";
+            marker.ns = "frontier_goal_history";
+            marker.id = static_cast<int>(index);
+            marker.type = visualization_msgs::msg::Marker::SPHERE;
+            marker.action = visualization_msgs::msg::Marker::ADD;
+            marker.pose.position = frontier_goal_history_[index];
+            marker.pose.orientation.w = 1.0;
+            marker.scale.x = 0.35;
+            marker.scale.y = 0.35;
+            marker.scale.z = 0.35;
+            marker.color.r = colors[index][0];
+            marker.color.g = colors[index][1];
+            marker.color.b = colors[index][2];
+            marker.color.a = 0.95f;
+            marker.lifetime = rclcpp::Duration::from_seconds(0.0);
+            marker_array.markers.push_back(marker);
+        }
+
+        for (size_t index = frontier_goal_history_.size(); index < max_frontier_history_; ++index) {
+            visualization_msgs::msg::Marker delete_marker;
+            delete_marker.header.stamp = this->now();
+            delete_marker.header.frame_id = "world";
+            delete_marker.ns = "frontier_goal_history";
+            delete_marker.id = static_cast<int>(index);
+            delete_marker.action = visualization_msgs::msg::Marker::DELETE;
+            marker_array.markers.push_back(delete_marker);
+        }
+
+        frontier_goal_markers_pub_->publish(marker_array);
     }
 };
 
