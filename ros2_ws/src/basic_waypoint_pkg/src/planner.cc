@@ -119,9 +119,8 @@ bool BasicPlanner::planTrajectory(
   
   middle = mav_trajectory_generation::Vertex(dimension);
   middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION,
-                      Eigen::Vector3d(-175.0, 10.0, 12.0));
+                      Eigen::Vector3d(-100.0, 10.0, 14.0));
   vertices.push_back(middle);
-
     
     
   RCLCPP_INFO(node_->get_logger(), "Added %zu intermediate waypoints to the entrance of the cave", 
