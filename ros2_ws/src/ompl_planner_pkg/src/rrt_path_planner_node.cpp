@@ -622,25 +622,41 @@ void RRTPathPlanner::publishPlanMarkers(const std::vector<Eigen::Vector3d>& path
     markers->markers.push_back(marker);
   }
   
-  // Publish waypoint spheres
-  for (size_t i = 0; i < path.size(); ++i) {
+  // Publish intermediate waypoint spheres (exclude start and final goal)
+  size_t intermediate_count = 0;
+  for (size_t i = 1; i + 1 < path.size(); ++i) {
     visualization_msgs::msg::Marker marker;
     marker.header.frame_id = "world";
     marker.header.stamp = this->get_clock()->now();
-    marker.ns = "path_waypoints";
-    marker.id = i;
+    marker.ns = "intermediate_waypoints";
+    marker.id = static_cast<int>(intermediate_count);
     marker.type = visualization_msgs::msg::Marker::SPHERE;
     marker.action = visualization_msgs::msg::Marker::ADD;
     marker.pose.position.x = path[i][0];
     marker.pose.position.y = path[i][1];
     marker.pose.position.z = path[i][2];
-    marker.scale.x = marker.scale.y = marker.scale.z = 0.2;
-    marker.color.r = 0.0f;
-    marker.color.g = 0.5f;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.35;
+    marker.color.r = 1.0f;
+    marker.color.g = 1.0f;
     marker.color.b = 1.0f;
-    marker.color.a = 0.6f;
+    marker.color.a = 0.85f;
     markers->markers.push_back(marker);
+    ++intermediate_count;
   }
+
+  // Remove stale intermediate markers from previous plans
+  for (size_t id = intermediate_count; id < last_intermediate_marker_count_; ++id) {
+    visualization_msgs::msg::Marker delete_marker;
+    delete_marker.header.frame_id = "world";
+    delete_marker.header.stamp = this->get_clock()->now();
+    delete_marker.ns = "intermediate_waypoints";
+    delete_marker.id = static_cast<int>(id);
+    delete_marker.action = visualization_msgs::msg::Marker::DELETE;
+    markers->markers.push_back(delete_marker);
+  }
+
+  last_intermediate_marker_count_ = intermediate_count;
   
   if (!markers->markers.empty()) {
     pub_plan_markers_->publish(std::move(markers));
