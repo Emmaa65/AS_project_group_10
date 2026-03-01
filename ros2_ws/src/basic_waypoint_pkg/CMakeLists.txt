@@ -77,6 +77,7 @@ target_include_directories(trajectory_executor
 
 ament_target_dependencies(trajectory_executor
   rclcpp
+  std_msgs
   mav_msgs
   mav_planning_msgs
   mav_trajectory_generation

@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
 #include <trajectory_msgs/msg/multi_dof_joint_trajectory_point.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <mav_trajectory_generation/trajectory.h>
 #include <mav_trajectory_generation/trajectory_sampling.h>
 #include <mav_trajectory_generation/ros_conversions.h>
@@ -11,6 +12,7 @@ private:
   // ROS communication
   rclcpp::Subscription<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr traj_sub_;
   rclcpp::Publisher<trajectory_msgs::msg::MultiDOFJointTrajectoryPoint>::SharedPtr desired_state_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr trajectory_finished_pub_;
   rclcpp::TimerBase::SharedPtr executor_timer_;
 
   // Trajectory storage
@@ -62,6 +64,9 @@ private:
     // Check if trajectory is finished
     if (elapsed_time >= trajectory_duration_) {
       trajectory_finished_ = true;
+      std_msgs::msg::Bool finish_msg;
+      finish_msg.data = true;
+      trajectory_finished_pub_->publish(finish_msg);
       RCLCPP_INFO(this->get_logger(), "Trajectory execution finished");
       return;
     }
@@ -122,6 +127,8 @@ public:
   : rclcpp::Node("trajectory_executor"),
     hz_(100.0)
   {
+    auto latched_qos = rclcpp::QoS(1).transient_local().reliable();
+
     // Create subscription for trajectory
     traj_sub_ = this->create_subscription<mav_planning_msgs::msg::PolynomialTrajectory4D>(
       "trajectory", 10,
@@ -130,6 +137,10 @@ public:
     // Create publisher for desired state
     desired_state_pub_ = this->create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectoryPoint>(
       "desired_state", 10);
+
+    // Publish one-shot signal when static trajectory is completed
+    trajectory_finished_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+      "trajectory_finished", latched_qos);
 
     // Create timer for execution loop
     executor_timer_ = this->create_wall_timer(
