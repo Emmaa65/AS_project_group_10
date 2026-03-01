@@ -90,6 +90,15 @@ RRTPathPlanner::RRTPathPlanner()
 void RRTPathPlanner::targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg) {
   Eigen::Vector3d frontier;
   frontier << msg->point.x, msg->point.y, msg->point.z;
+
+  // Ignore duplicates to avoid repeated re-acceptance churn on the same target.
+  const double TARGET_DUPLICATE_THRESHOLD = 0.5; // meters
+  if (has_target_ && (frontier - target_frontier_).norm() < TARGET_DUPLICATE_THRESHOLD) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Ignoring duplicate frontier [%.2f, %.2f, %.2f]",
+      frontier[0], frontier[1], frontier[2]);
+    return;
+  }
   
   RCLCPP_INFO(this->get_logger(),
     "targetFrontierCallback: received frontier [%.2f, %.2f, %.2f]",
