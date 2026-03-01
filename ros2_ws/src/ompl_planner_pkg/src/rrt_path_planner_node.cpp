@@ -29,7 +29,6 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("cave_entrance_x", -330.0);
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
-  this->declare_parameter("min_frontier_z", -33.5); // Keep above cave floor
   this->declare_parameter("collision_check_resolution", 0.3);
   this->declare_parameter("robot_radius", 0.3);  // Drone is 0.2x0.2m, add small safety margin
   
@@ -44,7 +43,6 @@ RRTPathPlanner::RRTPathPlanner()
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
   cave_entrance_[2] = this->get_parameter("cave_entrance_z").as_double();
-  min_frontier_z_ = this->get_parameter("min_frontier_z").as_double();
   collision_check_resolution_ = this->get_parameter("collision_check_resolution").as_double();
   robot_radius_ = this->get_parameter("robot_radius").as_double();
   
@@ -673,13 +671,6 @@ void RRTPathPlanner::publishPlanMarkers(const std::vector<Eigen::Vector3d>& path
 // ============================================================================
 
 bool RRTPathPlanner::isFrontierValid(const Eigen::Vector3d& frontier) {
-  // Check 1: Frontier must be above minimum safe height (cave floor)
-  if (frontier[2] < min_frontier_z_) {
-    RCLCPP_DEBUG(this->get_logger(),
-      "Rejecting frontier [%.2f, %.2f, %.2f] - Z=%.2f < min_z=%.2f (too close to cave floor)",
-      frontier[0], frontier[1], frontier[2], frontier[2], min_frontier_z_);
-    return false;
-  }
   
   // Check 2: Cave X-coordinates are always < -330 (cave entrance X)
   // Reject frontiers outside the cave (X >= -330)
