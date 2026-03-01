@@ -26,7 +26,7 @@ ExplorationManager::ExplorationManager()
   
   // Subscribers
   sub_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    "current_state_est", 10,
+    "/current_state_est", 10,
     std::bind(&ExplorationManager::odometryCallback, this, std::placeholders::_1));
   
   sub_frontier_goal_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -45,13 +45,16 @@ ExplorationManager::ExplorationManager()
   pub_debug_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
     "exploration_markers", 10);  
   pub_state_ = this->create_publisher<std_msgs::msg::String>(
-    "/exploration_state", 10);  
+    "/exploration_state", 10);
+  pub_frontier_request_ = this->create_publisher<std_msgs::msg::Bool>(
+    "/exploration/request_frontier", 10);
   // Control loop timer (10Hz for state machine)
   control_loop_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(100),
     std::bind(&ExplorationManager::controlLoop, this));
   
   last_frontier_selection_ = this->get_clock()->now();
+  last_frontier_request_time_ = this->get_clock()->now();
   
   RCLCPP_INFO(this->get_logger(), 
     "Cave entrance set to: [%.2f, %.2f, %.2f]",
@@ -68,6 +71,10 @@ void ExplorationManager::odometryCallback(const nav_msgs::msg::Odometry::SharedP
     msg->twist.twist.linear.x,
     msg->twist.twist.linear.y,
     msg->twist.twist.linear.z;
+
+  if (selected_frontier_.distance > 0.0) {
+    selected_frontier_.distance = (selected_frontier_.position - current_position_).norm();
+  }
 }
 
 void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
@@ -103,6 +110,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
   }
   
   selected_frontier_ = frontier;
+  frontier_request_pending_ = false;
 }
 
 void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -129,6 +137,7 @@ void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::Share
         MAX_PLANNING_FAILURES);
       selected_frontier_.distance = 0.0;  // Clear frontier
       planning_failures_ = 0;
+      requestNewFrontier("planning failed repeatedly");
     }
   }
 }
@@ -220,6 +229,7 @@ void ExplorationManager::handleWaitingAtEntrance() {
     RCLCPP_INFO(this->get_logger(), 
       "Grid stabilized. Starting autonomous exploration...");
     transitionToState(ExplorationState::AUTONOMOUS_EXPLORATION);
+    requestNewFrontier("entered autonomous exploration");
   } else {
     RCLCPP_DEBUG(this->get_logger(),
       "Waiting at entrance: %.1f / 5.0 seconds elapsed", elapsed);
@@ -234,12 +244,26 @@ void ExplorationManager::handleAutonomousExploration() {
   static int log_count = 0;
   if (++log_count % 10 == 0) {  // Log every 10 calls (1 second at 10Hz)
     RCLCPP_INFO(this->get_logger(),
-      "AUTONOMOUS: distance=%.2f, pos=[%.2f, %.2f, %.2f], failures=%d",
+      "AUTONOMOUS: distance=%.2f, drone=[%.2f, %.2f, %.2f], frontier=[%.2f, %.2f, %.2f], failures=%d",
       selected_frontier_.distance,
+      current_position_[0],
+      current_position_[1],
+      current_position_[2],
       selected_frontier_.position[0],
       selected_frontier_.position[1],
       selected_frontier_.position[2],
       planning_failures_);
+  }
+
+  const double FRONTIER_REACHED_THRESHOLD = 2.0; // meters
+  if (selected_frontier_.distance > 0.0 && selected_frontier_.distance <= FRONTIER_REACHED_THRESHOLD) {
+    RCLCPP_INFO(this->get_logger(),
+      "Frontier reached (distance=%.2f m), requesting next frontier",
+      selected_frontier_.distance);
+    selected_frontier_.distance = 0.0;
+    planning_failures_ = 0;
+    requestNewFrontier("frontier reached");
+    return;
   }
   
   if (selected_frontier_.distance > 0.1) {
@@ -263,6 +287,11 @@ void ExplorationManager::handleAutonomousExploration() {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
       "No frontier available (distance=%.2f)",
       selected_frontier_.distance);
+    const double request_cooldown_s = 1.0;
+    double elapsed_since_request = (this->get_clock()->now() - last_frontier_request_time_).seconds();
+    if (!frontier_request_pending_ && elapsed_since_request >= request_cooldown_s) {
+      requestNewFrontier("no active frontier");
+    }
   }
 }
 
@@ -284,6 +313,22 @@ void ExplorationManager::publishTargetFrontier(const FrontierPoint& frontier) {
   msg->point.z = frontier.position[2];
   
   pub_next_frontier_->publish(std::move(msg));
+}
+
+void ExplorationManager::requestNewFrontier(const std::string& reason) {
+  if (!pub_frontier_request_) {
+    return;
+  }
+
+  auto msg = std::make_unique<std_msgs::msg::Bool>();
+  msg->data = true;
+  pub_frontier_request_->publish(std::move(msg));
+  frontier_request_pending_ = true;
+  last_frontier_request_time_ = this->get_clock()->now();
+
+  RCLCPP_INFO(this->get_logger(),
+    "Requested new frontier (%s)",
+    reason.c_str());
 }
 
 // ============================================================================

@@ -23,10 +23,10 @@ enum class ExplorationState {
  * Helper struct for frontier point data
  */
 struct FrontierPoint {
-  Eigen::Vector3d position;
-  double info_gain;        // How much new information at this frontier
-  double distance;         // Distance from current position
-  int frontier_id;
+  Eigen::Vector3d position = Eigen::Vector3d::Zero();
+  double info_gain = 0.0;        // How much new information at this frontier
+  double distance = 0.0;         // Distance from current position
+  int frontier_id = 0;
   
   // Score: balance between info gain and distance
   double getScore() const {

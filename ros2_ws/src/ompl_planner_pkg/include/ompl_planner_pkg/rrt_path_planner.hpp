@@ -68,7 +68,13 @@ private:
   int max_iterations_ = 1000;
   double max_velocity_ = 10.0;
   double max_acceleration_ = 2.0;
-  double replan_threshold_ = 2.0; // Only replan if target moves more than this
+  double replan_threshold_ = 0.5; // Only replan if target moves more than this
+  double periodic_replan_interval_s_ = 60.0; // Replan same target if not reached for this long
+  double periodic_replan_min_progress_m_ = 1.0; // Replan only if less progress than this over interval
+  double distance_at_last_plan_ = 1e9;
+  rclcpp::Time last_plan_time_;
+  rclcpp::Time trajectory_end_time_;  // Expected time when current trajectory completes
+  double last_trajectory_duration_ = 0.0;
   
   // OMPL RRT* parameters
   double collision_check_resolution_ = 0.3;  // Resolution for collision checking (meters)
