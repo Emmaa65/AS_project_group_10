@@ -22,7 +22,7 @@ rrt_path_planner:
   ros__parameters:
     # RRT planning parameters
     max_planning_time: 1.0       # seconds
-    step_size: 3.0               # meters (larger = fewer waypoints)
+    step_size: 5.0               # meters (larger = fewer waypoints)
     max_iterations: 1000         # iterations
     
     # Trajectory generation
