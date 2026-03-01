@@ -22,6 +22,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <Eigen/Dense>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ompl_planner_pkg/exploration_types.hpp"
@@ -49,6 +50,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr pub_next_frontier_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_debug_markers_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_; // Publish current state
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_frontier_request_; // Request next frontier on demand
   
   // Control loop timer
   rclcpp::TimerBase::SharedPtr control_loop_timer_;
@@ -62,7 +64,7 @@ private:
   Eigen::Vector3d current_velocity_ = Eigen::Vector3d::Zero();
   
   // Cave entrance position (from waypoint mission)
-  Eigen::Vector3d cave_entrance_ = Eigen::Vector3d(-330.0, 10.0, 20.0);
+  Eigen::Vector3d cave_entrance_ = Eigen::Vector3d(-175.0, 10.0, 12.0);
   double entrance_reach_tolerance_ = 1.5; // meters
   
   // Timing for state transitions
@@ -81,6 +83,8 @@ private:
   
   // Timing
   rclcpp::Time last_frontier_selection_;
+  rclcpp::Time last_frontier_request_time_;
+  bool frontier_request_pending_ = false;
   
   // ========================================================================
   // Callback Functions
@@ -109,6 +113,7 @@ private:
    * Publish the selected frontier as target
    */
   void publishTargetFrontier(const FrontierPoint& frontier);
+  void requestNewFrontier(const std::string& reason);
   
   // ========================================================================
   // Helper Methods

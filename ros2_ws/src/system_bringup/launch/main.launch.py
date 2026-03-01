@@ -25,6 +25,12 @@ def generate_launch_description():
     enable_frontier = LaunchConfiguration("enable_frontier")
     enable_pointcloud_filter = LaunchConfiguration("enable_pointcloud_filter")
 
+    ompl_params_file = PathJoinSubstitution([
+        FindPackageShare("ompl_planner_pkg"),
+        "config",
+        "exploration_params.yaml",
+    ])
+
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
     octomap_autosave_interval_sec = LaunchConfiguration("octomap_autosave_interval_sec")
@@ -347,6 +353,7 @@ def generate_launch_description():
                 package="ompl_planner_pkg",
                 executable="exploration_manager_node",
                 name="exploration_manager",
+                parameters=[ompl_params_file],
                 output="screen",
                 condition=IfCondition(enable_frontier),
             ),
@@ -354,6 +361,7 @@ def generate_launch_description():
                 package="ompl_planner_pkg",
                 executable="rrt_path_planner_node",
                 name="rrt_path_planner",
+                parameters=[ompl_params_file],
                 output="screen",
                 condition=IfCondition(enable_frontier),
             ),

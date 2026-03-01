@@ -10,6 +10,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 // PCL Headers
 #include <pcl/point_cloud.h>
@@ -42,7 +43,12 @@ public:
         );
 
         current_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "current_state", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
+        "current_state_est", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
+
+        frontier_request_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+            "/exploration/request_frontier", 10,
+            std::bind(&FrontierExploration::frontierRequestCallback, this, std::placeholders::_1)
+        );
         
             // Timer Callback for Periodic Exploration (2 Hz)
         exploration_timer_ = this->create_wall_timer(
@@ -63,6 +69,7 @@ private:
     std::unique_ptr<octomap::ColorOcTree> color_octree_;
     rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr octomap_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr current_state_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontier_request_sub_;
     rclcpp::TimerBase::SharedPtr exploration_timer_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr frontier_goal_pub_;
     std::mutex mutex_;
@@ -78,6 +85,7 @@ private:
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
+    bool frontier_request_pending_ = false;
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -121,9 +129,20 @@ private:
         current_velocity_ = msg->twist.twist;
     }
 
+    void frontierRequestCallback(const std_msgs::msg::Bool::SharedPtr msg) {
+        if (!msg || !msg->data) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        frontier_request_pending_ = true;
+        RCLCPP_INFO(this->get_logger(), "Received frontier request from exploration_manager");
+    }
+
     void explorationTimerCallback() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!frontier_goal_pub_) return;
+        if (!frontier_request_pending_) return;
 
         // Collect frontier points
         PointCloudPtr frontier_cloud(new PointCloud);
@@ -157,6 +176,7 @@ private:
         centroid.x(), centroid.y(), centroid.z());
     
     publishGoalFromCentroid(centroid, cluster_indices[best_idx].indices.size());
+    frontier_request_pending_ = false;
     }
 
 
