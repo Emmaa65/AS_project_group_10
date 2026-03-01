@@ -42,7 +42,7 @@ public:
         );
 
         current_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "current_state", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
+        "current_state_est", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
         
             // Timer Callback for Periodic Exploration (2 Hz)
         exploration_timer_ = this->create_wall_timer(
@@ -78,6 +78,7 @@ private:
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 2.0; // Minimum distance from obstacles (meters)
+    double frontier_search_radius_ = 100.0; // Only consider frontiers within 400m of drone (enough to reach cave from origin)
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -165,8 +166,18 @@ private:
     void collectFrontierPoints(PointCloudPtr &frontier_cloud) {
         frontier_cloud->clear();
         std::array<std::array<int,3>,6> offsets = {{{{1,0,0}},{{-1,0,0}},{{0,1,0}},{{0,-1,0}},{{0,0,1}},{{0,0,-1}}}};
-        RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: start (has_color=%s has_plain=%s)",
-                    color_octree_?"true":"false", octree_?"true":"false");
+        
+        // Get current drone position for radius filtering
+        Eigen::Vector3d drone_pos;
+        {
+            std::lock_guard<std::mutex> lock(drone_state_mutex_);
+            drone_pos.x() = current_pose_.position.x;
+            drone_pos.y() = current_pose_.position.y;
+            drone_pos.z() = current_pose_.position.z;
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: start (has_color=%s has_plain=%s) drone at (%.2f, %.2f, %.2f) search_radius=%.1f",
+                    color_octree_?"true":"false", octree_?"true":"false", drone_pos.x(), drone_pos.y(), drone_pos.z(), frontier_search_radius_);
 
         if (color_octree_) {
             auto &ct = *color_octree_;
@@ -190,18 +201,31 @@ private:
                     if (ct.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
-                        pcl::PointXYZ p;
-                        p.x = static_cast<float>(x);
-                        p.y = static_cast<float>(y);
-                        p.z = static_cast<float>(z);
-                        frontier_cloud->points.push_back(p);
-                        ++found;
+                    // Filter: Always enforce X-filter to keep drone inside cave only
+                    // Cave extends only to X < -330
+                    if (x >= max_frontier_x_) {
+                        continue; // Skip if frontier is not in cave
                     }
+                    
+                    double dist_to_drone = std::sqrt((x - drone_pos.x())*(x - drone_pos.x()) + 
+                                                     (y - drone_pos.y())*(y - drone_pos.y()) + 
+                                                     (z - drone_pos.z())*(z - drone_pos.z()));
+                    
+                    // Check Z and distance
+                    if (z < min_frontier_z_ || dist_to_drone >= frontier_search_radius_) {
+                        continue; // Skip if bad height or too far
+                    }
+                    
+                    pcl::PointXYZ p;
+                    p.x = static_cast<float>(x);
+                    p.y = static_cast<float>(y);
+                    p.z = static_cast<float>(z);
+                    frontier_cloud->points.push_back(p);
+                    ++found;
                 }
             }
-            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", checked, found);
+            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", 
+                        checked, found);
         } else if (octree_) {
             auto &ot = *octree_;
             double res = ot.getResolution();
@@ -224,18 +248,31 @@ private:
                     if (ot.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
-                        pcl::PointXYZ p;
-                        p.x = static_cast<float>(x);
-                        p.y = static_cast<float>(y);
-                        p.z = static_cast<float>(z);
-                        frontier_cloud->points.push_back(p);
-                        ++found;
+                    // Filter: Always enforce X-filter to keep drone inside cave only
+                    // Cave extends only to X < -330
+                    if (x >= max_frontier_x_) {
+                        continue; // Skip if frontier is not in cave
                     }
+                    
+                    double dist_to_drone = std::sqrt((x - drone_pos.x())*(x - drone_pos.x()) + 
+                                                     (y - drone_pos.y())*(y - drone_pos.y()) + 
+                                                     (z - drone_pos.z())*(z - drone_pos.z()));
+                    
+                    // Check Z and distance
+                    if (z < min_frontier_z_ || dist_to_drone >= frontier_search_radius_) {
+                        continue; // Skip if bad height or too far
+                    }
+                    
+                    pcl::PointXYZ p;
+                    p.x = static_cast<float>(x);
+                    p.y = static_cast<float>(y);
+                    p.z = static_cast<float>(z);
+                    frontier_cloud->points.push_back(p);
+                    ++found;
                 }
             }
-            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", checked, found);
+            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", 
+                        checked, found);
         }
     }
 
