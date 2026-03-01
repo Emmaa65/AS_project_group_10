@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -18,6 +19,7 @@ def generate_launch_description():
     enable_octomap = LaunchConfiguration("enable_octomap")
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
+    trajectory_finish_topic = LaunchConfiguration("trajectory_finish_topic")
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
@@ -67,6 +69,11 @@ def generate_launch_description():
             "enable_waypoints",
             default_value="true",
             description="Launch waypoint mission nodes"
+        ),
+        DeclareLaunchArgument(
+            "trajectory_finish_topic",
+            default_value="/trajectory_finished",
+            description="Bool topic that signals end of static trajectory"
         ),
         DeclareLaunchArgument(
             "save_octomap_on_shutdown",
@@ -220,6 +227,32 @@ def generate_launch_description():
     condition=IfCondition(enable_object),
     )
 
+    wait_for_trajectory_finish = ExecuteProcess(
+        cmd=[
+            "/usr/bin/python3",
+            PathJoinSubstitution([
+                FindPackageShare("system_bringup"),
+                "scripts",
+                "wait_for_trajectory_finish.py",
+            ]),
+            "--topic",
+            trajectory_finish_topic,
+        ],
+        output="screen",
+    )
+
+    start_cave_stack_on_trajectory_finish = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_for_trajectory_finish,
+            on_exit=[
+                depth_to_pointcloud_node,
+                perception_launch,
+                octomap_server_node,
+                object_detection_launch,
+            ],
+        )
+    )
+
     # RViz node
     rviz_node = Node(
         package="rviz2",
@@ -238,12 +271,10 @@ def generate_launch_description():
         declared_args
         + [
             simulation_launch,
-            perception_launch,
             controller_launch,
             waypoint_launch,
-            depth_to_pointcloud_node,
-            octomap_server_node,
+            wait_for_trajectory_finish,
+            start_cave_stack_on_trajectory_finish,
             rviz_node,
-            object_detection_launch,
         ]
     )
