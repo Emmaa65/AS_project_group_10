@@ -91,18 +91,18 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
   }
   
   // Only reset failure counter if this is a NEW frontier (position changed significantly)
-  const double FRONTIER_CHANGE_THRESHOLD = 0.5; // meters
+  const double FRONTIER_CHANGE_THRESHOLD = 2.0; // meters
   double frontier_change = (frontier.position - selected_frontier_.position).norm();
   
   if (frontier_change > FRONTIER_CHANGE_THRESHOLD) {
     // This is a new frontier, reset the planning failure counter
     planning_failures_ = 0;
-    RCLCPP_DEBUG(this->get_logger(),
+    selected_frontier_ = frontier;
+    RCLCPP_INFO(this->get_logger(),
       "New frontier detected (change: %.2f m), resetting failure counter",
       frontier_change);
   }
-  
-  selected_frontier_ = frontier;
+
 }
 
 void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -231,33 +231,42 @@ void ExplorationManager::handleAutonomousExploration() {
   // frontier_exploration already selects best frontiers and publishes to /exploration/frontier_goal
   // We just forward it to RRT planner for path generation
   
-  static int log_count = 0;
-  if (++log_count % 10 == 0) {  // Log every 10 calls (1 second at 10Hz)
-    RCLCPP_INFO(this->get_logger(),
-      "AUTONOMOUS: distance=%.2f, pos=[%.2f, %.2f, %.2f], failures=%d",
-      selected_frontier_.distance,
-      selected_frontier_.position[0],
-      selected_frontier_.position[1],
-      selected_frontier_.position[2],
-      planning_failures_);
-  }
+  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+    "AUTONOMOUS: distance=%.2f, pos=[%.2f, %.2f, %.2f], failures=%d",
+    selected_frontier_.distance,
+    selected_frontier_.position[0],
+    selected_frontier_.position[1],
+    selected_frontier_.position[2],
+    planning_failures_);
   
   if (selected_frontier_.distance > 0.1) {
-    // Only publish when frontier target changed significantly.
-    // This avoids re-triggering RRT planning on the same frontier at 10 Hz.
-    const double TARGET_PUBLISH_THRESHOLD = 0.5; // meters
-    const double target_change = (selected_frontier_.position - last_sent_frontier_).norm();
+    // Check if this is the first publish (avoid recalculating norm twice)
     const bool first_publish = last_sent_frontier_.norm() < 0.1;
-
-    if (first_publish || target_change > TARGET_PUBLISH_THRESHOLD) {
+    
+    // Only calculate target_change if needed
+    if (!first_publish) {
+      const double TARGET_PUBLISH_THRESHOLD = 0.1; // meters
+      const double target_change = (selected_frontier_.position - last_sent_frontier_).norm();
+      
+      if (target_change > TARGET_PUBLISH_THRESHOLD) {
+        publishTargetFrontier(selected_frontier_);
+        last_sent_frontier_ = selected_frontier_.position;
+        RCLCPP_INFO(this->get_logger(),
+          "Published new target frontier [%.2f, %.2f, %.2f] (change: %.2f m)",
+          selected_frontier_.position[0],
+          selected_frontier_.position[1],
+          selected_frontier_.position[2],
+          target_change);
+      }
+    } else {
+      // First publish - no threshold check needed
       publishTargetFrontier(selected_frontier_);
       last_sent_frontier_ = selected_frontier_.position;
       RCLCPP_INFO(this->get_logger(),
-        "Published new target frontier [%.2f, %.2f, %.2f] (change: %.2f m)",
+        "Published first target frontier [%.2f, %.2f, %.2f]",
         selected_frontier_.position[0],
         selected_frontier_.position[1],
-        selected_frontier_.position[2],
-        target_change);
+        selected_frontier_.position[2]);
     }
   } else {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,

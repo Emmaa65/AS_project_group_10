@@ -34,8 +34,9 @@ find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 
 # Find OMPL using pkg-config
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(OMPL REQUIRED ompl)
+#find_package(PkgConfig REQUIRED)
+#pkg_check_modules(OMPL REQUIRED ompl)
+find_package(ompl REQUIRED)
 
 # Include directories
 include_directories(include)

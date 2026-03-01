@@ -55,26 +55,27 @@ private:
   
   // Current state
   std::string exploration_state_ = "INITIALIZATION";
-  Eigen::Vector3d current_position_ = Eigen::Vector3d::Zero();
-  Eigen::Vector3d target_frontier_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d current_position_    = Eigen::Vector3d::Zero();
+  Eigen::Vector3d target_frontier_     = Eigen::Vector3d::Zero();
   Eigen::Vector3d last_planned_target_ = Eigen::Vector3d::Zero();
-  bool has_target_ = false;
-  
+  bool has_target_   = false;
+  bool need_replan_  = false;  // set true when a new frontier is committed
+
   // Cave entrance for filtering invalid frontiers
   Eigen::Vector3d cave_entrance_ = Eigen::Vector3d(-330.0, 10.0, 20.0);
-  double min_frontier_z_ = 33.5; // Minimum safe height (cave is above Z=14, safety margin)
+  double min_frontier_z_ = 33.5;
   
   // Planning parameters
-  double max_planning_time_ = 1.0;
-  double step_size_ = 0.5;
-  int max_iterations_ = 1000;
-  double max_velocity_ = 10.0;
-  double max_acceleration_ = 2.0;
-  double replan_threshold_ = 2.0; // Only replan if target moves more than this
+  double max_planning_time_  = 2.0;
+  double step_size_          = 3.0;
+  int    max_iterations_     = 1000;
+  double max_velocity_       = 10.0;
+  double max_acceleration_   = 2.0;
+  double replan_threshold_   = 5.0;
   
-  // OMPL RRT* parameters
-  double collision_check_resolution_ = 0.5;  // Resolution for collision checking (meters)
-  double robot_radius_ = 1.0;  // Conservative robot radius for safety (meters)
+  // OMPL / collision parameters
+  double collision_check_resolution_ = 0.5;
+  double robot_radius_               = 1.0;
   
   // OctoMap for collision checking
   std::shared_ptr<octomap::OcTree> octree_;
@@ -90,7 +91,7 @@ private:
   
   // Path planning methods
   std::vector<Eigen::Vector3d> planPathToTarget(
-    const Eigen::Vector3d& start, 
+    const Eigen::Vector3d& start,
     const Eigen::Vector3d& goal);
   
   std::vector<Eigen::Vector3d> planPathWithRRTStar(
@@ -102,13 +103,10 @@ private:
   std::vector<Eigen::Vector3d> generateSimplePath(
     const Eigen::Vector3d& start,
     const Eigen::Vector3d& goal,
-    double step_size = 0.5);
+    double step_size = 3.0);
   
   void publishPlanningResult(bool success);
-  
-  // Frontier validation
   bool isFrontierValid(const Eigen::Vector3d& frontier);
-  
   void publishTrajectory(const std::vector<Eigen::Vector3d>& path);
   void publishPlanMarkers(const std::vector<Eigen::Vector3d>& path);
 };
