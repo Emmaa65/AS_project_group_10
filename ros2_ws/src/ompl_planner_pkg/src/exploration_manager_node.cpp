@@ -16,7 +16,6 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("entrance_reach_tolerance", 1.5);
   this->declare_parameter("frontier_update_rate", 2.0);
   this->declare_parameter("min_frontier_distance", 0.5);
-  this->declare_parameter("max_frontier_distance", 50.0);
   
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
@@ -24,7 +23,6 @@ ExplorationManager::ExplorationManager()
   entrance_reach_tolerance_ = this->get_parameter("entrance_reach_tolerance").as_double();
   frontier_update_rate_ = this->get_parameter("frontier_update_rate").as_double();
   min_frontier_distance_ = this->get_parameter("min_frontier_distance").as_double();
-  max_frontier_distance_ = this->get_parameter("max_frontier_distance").as_double();
   
   // Subscribers
   sub_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -83,6 +81,14 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
   );
   frontier.distance = (frontier.position - current_position_).norm();
   frontier.info_gain = 1.0; // frontier_exploration already selected the best one
+  
+  // Filter out frontiers that are too close (safety buffer to avoid wall collision)
+  if (frontier.distance < min_frontier_distance_) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Frontier too close (%.2f m < min %.2f m) - rejecting",
+      frontier.distance, min_frontier_distance_);
+    return; // Ignore this frontier
+  }
   
   selected_frontier_ = frontier;
   

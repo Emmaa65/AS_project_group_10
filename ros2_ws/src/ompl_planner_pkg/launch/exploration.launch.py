@@ -14,12 +14,9 @@ def generate_launch_description():
     1. exploration_manager: Orchestrates the state machine (waypoint → exploration)
     2. rrt_path_planner: Plans paths to frontier targets using RRT*
     
-    NOTE: Frontier detection is handled by navigation_pkg/frontier_exploration_node
-    which publishes frontier_points_3d from the OctoMap.
-    
-    These work together with existing nodes:
+    PREREQUISITES (launched separately in system_bringup/main.launch.py):
+    - navigation_pkg/frontier_exploration_node: 3D frontier detection from OctoMap
     - basic_waypoint_pkg/basic_waypoint_node: Initial waypoint navigation
-    - navigation_pkg/frontier_exploration: 3D frontier detection from OctoMap
     - trajectory_executor: Converts PolynomialTrajectory to sampled states
     - controller: Executes the desired trajectory
     """
@@ -43,10 +40,12 @@ def generate_launch_description():
         remappings=[
             # Subscribe to drone odometry (same as basic_waypoint_node)
             ("current_state_est", "current_state_est"),
-            # Subscribe to frontiers from frontier_detector
+            # Subscribe to frontiers from frontier_exploration_node (navigation_pkg)
             ("frontier_points_3d", "frontier_points_3d"),
             # Publish selected target frontier
             ("target_frontier", "target_frontier"),
+            # Subscribe to planning results from RRT planner
+            ("planning_result", "planning_result"),
             # Debug markers for RViz
             ("exploration_markers", "exploration_markers"),
             # Note: exploration_manager does NOT publish trajectory directly
@@ -72,13 +71,14 @@ def generate_launch_description():
             ("octomap_point_cloud_centers", "octomap_point_cloud_centers"),
             # Publish trajectory to executor
             ("trajectory", "trajectory"),
+            # Publish planning result to exploration_manager
+            ("planning_result", "planning_result"),
             # Debug markers for RViz
             ("planned_path_markers", "planned_path_markers"),
         ]
     )
     
     return LaunchDescription([
-        frontier_detector_node,
         exploration_manager_node,
         rrt_path_planner_node,
     ])
