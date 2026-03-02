@@ -2,6 +2,7 @@
 #define OBJECT_MANAGER_HPP
 
 #include <vector>
+#include <fstream>
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -35,6 +36,7 @@ public:
     DetectedObject* get_object(int id);
     
     void print_all_objects(rclcpp::Logger logger) const;
+    void save_to_file(const std::string& filepath, rclcpp::Logger logger) const;
     
 private:
     std::vector<DetectedObject> detected_objects_;

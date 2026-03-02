@@ -80,3 +80,29 @@ cv::Point3d ObjectManager::compute_mean(const std::vector<cv::Point3d>& points) 
     int n = points.size();
     return cv::Point3d(sum_x / n, sum_y / n, sum_z / n);
 }
+
+void ObjectManager::save_to_file(const std::string& filepath, rclcpp::Logger logger) const {
+    std::ofstream file(filepath);
+    
+    if (!file.is_open()) {
+        RCLCPP_ERROR(logger, "Failed to open file for writing: %s", filepath.c_str());
+        return;
+    }
+    
+    file << "Detected Objects Report\n";
+    file << "=======================\n\n";
+    file << "Total objects detected: " << detected_objects_.size() << "\n\n";
+    
+    for (const auto& obj : detected_objects_) {
+        file << "Object ID: " << obj.id << "\n";
+        file << "  Position (world frame): (" 
+             << obj.position.x << ", " 
+             << obj.position.y << ", " 
+             << obj.position.z << ")\n";
+        file << "  Accumulated points: " << obj.accumulated_points.size() << "\n";
+        file << "\n";
+    }
+    
+    file.close();
+    RCLCPP_INFO(logger, "Objects saved to file: %s", filepath.c_str());
+}
