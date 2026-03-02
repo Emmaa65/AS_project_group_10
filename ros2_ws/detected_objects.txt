@@ -1,9 +1,0 @@
-Detected Objects Report
-=======================
-
-Total objects detected: 1
-
-Object ID: 0
-  Position (world frame): (-59.3863, 1.02415, 6.67911)
-  Accumulated points: 7945
-
