@@ -16,7 +16,7 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("entrance_reach_tolerance", 1.5);
   this->declare_parameter("frontier_update_rate", 2.0);
   this->declare_parameter("min_frontier_distance", 0.5);
-  this->declare_parameter("max_frontier_distance", 200.0);
+  this->declare_parameter("max_frontier_distance", 300.0);
   this->declare_parameter("cave_interior_margin_x", 1.0);
   this->declare_parameter("frontier_blacklist_radius", 15.0);
   this->declare_parameter("frontier_stall_timeout_s", 20.0);
@@ -51,6 +51,9 @@ ExplorationManager::ExplorationManager()
   // Publishers
   pub_next_frontier_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
     "target_frontier", 10);
+  
+  pub_accepted_frontier_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "accepted_frontier_position", 10);
   
   pub_debug_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
     "exploration_markers", 10);  
@@ -158,10 +161,24 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
 
 void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::SharedPtr msg) {
   if (msg->data) {
-    // Planning succeeded
+    // Planning succeeded - publish accepted frontier for continuity tracking
     RCLCPP_DEBUG(this->get_logger(), "Planning succeeded for frontier");
     planning_failures_ = 0;
     last_sent_frontier_ = selected_frontier_.position;
+    
+    // Publish accepted frontier position for frontier_exploration continuity scoring
+    auto accepted_msg = geometry_msgs::msg::PoseStamped();
+    accepted_msg.header.stamp = this->get_clock()->now();
+    accepted_msg.header.frame_id = "world";
+    accepted_msg.pose.position.x = selected_frontier_.position[0];
+    accepted_msg.pose.position.y = selected_frontier_.position[1];
+    accepted_msg.pose.position.z = selected_frontier_.position[2];
+    accepted_msg.pose.orientation.w = 1.0;
+    pub_accepted_frontier_->publish(accepted_msg);
+    
+    RCLCPP_INFO(this->get_logger(),
+      "Published accepted frontier [%.2f, %.2f, %.2f] for continuity tracking",
+      selected_frontier_.position[0], selected_frontier_.position[1], selected_frontier_.position[2]);
   } else {
     // Planning failed
     planning_failures_++;

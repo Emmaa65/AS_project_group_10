@@ -49,6 +49,7 @@ private:
   
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr pub_next_frontier_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_accepted_frontier_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_debug_markers_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_; // Publish current state
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_frontier_request_; // Request next frontier on demand

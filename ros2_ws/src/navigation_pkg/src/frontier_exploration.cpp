@@ -53,7 +53,12 @@ public:
             std::bind(&FrontierExploration::frontierRequestCallback, this, std::placeholders::_1)
         );
         
-            // Timer Callback for Periodic Exploration (2 Hz)
+        accepted_frontier_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "accepted_frontier_position", 10,
+            std::bind(&FrontierExploration::acceptedFrontierCallback, this, std::placeholders::_1)
+        );
+        
+        // Timer Callback for Periodic Exploration (2 Hz)
         exploration_timer_ = this->create_wall_timer(
             std::chrono::duration<double>(0.5), std::bind(&FrontierExploration::explorationTimerCallback, this)
         );
@@ -77,6 +82,7 @@ private:
     rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr octomap_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr current_state_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontier_request_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr accepted_frontier_sub_;
     rclcpp::TimerBase::SharedPtr exploration_timer_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr frontier_goal_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr frontier_goal_markers_pub_;
@@ -96,6 +102,8 @@ private:
     bool frontier_request_pending_ = false;
     std::deque<geometry_msgs::msg::Point> frontier_goal_history_;
     static constexpr size_t max_frontier_history_ = 5;
+    Eigen::Vector3d last_published_frontier_ = Eigen::Vector3d(1e6, 1e6, 1e6); // Track last published to avoid near-duplicate re-suggestions
+    std::vector<Eigen::Vector3d> accepted_frontier_positions_; // History of ACCEPTED (non-failed) frontier positions for continuity scoring
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -137,6 +145,32 @@ private:
         std::lock_guard<std::mutex> lock(drone_state_mutex_);
         current_pose_ = msg->pose.pose;
         current_velocity_ = msg->twist.twist;
+    }
+
+    void acceptedFrontierCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+        // Receive accepted frontier positions from exploration_manager
+        // This populates the history for continuity-based scoring
+        if (!msg) return;
+        
+        Eigen::Vector3d accepted_pos(
+            msg->pose.position.x,
+            msg->pose.position.y,
+            msg->pose.position.z
+        );
+        
+        // Add to history (keep last N positions for continuity calculation)
+        accepted_frontier_positions_.push_back(accepted_pos);
+        
+        // Limit history size (keep last 10 accepted frontiers)
+        const size_t max_history = 10;
+        if (accepted_frontier_positions_.size() > max_history) {
+            accepted_frontier_positions_.erase(accepted_frontier_positions_.begin());
+        }
+        
+        RCLCPP_INFO(this->get_logger(),
+            "Received accepted frontier [%.2f, %.2f, %.2f] - history size: %zu",
+            accepted_pos.x(), accepted_pos.y(), accepted_pos.z(), 
+            accepted_frontier_positions_.size());
     }
 
     void frontierRequestCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -314,10 +348,11 @@ private:
         size_t best_idx = 0;
         double best_score = -std::numeric_limits<double>::infinity();
         const double min_distance = 5.0;  // Minimum distance from drone (meters) - reduced for deep exploration
+        const double max_frontier_distance = 300.0;  // Increased from 200m to allow backtracking to major clusters
         
         // First pass: try to find clusters far enough from drone
         bool found_distant_cluster = false;
-        const double entrance_x = -350.0;  // Cave entrance region (penalize return to entrance)
+        const double entrance_x = -330.0;  // Cave entrance X coordinate
         
         for (size_t i = 0; i < clusters.size(); ++i) {
             // Compute cluster centroid
@@ -339,30 +374,74 @@ private:
                     i, centroid.x(), clusters[i].indices.size(), safety_margin_);
                 continue;
             }
+
+            // AVOID RE-SUGGESTING: Only skip if cluster is within 3m of last published.
+            // Reduced from 5m to allow closer alternatives when nearby frontiers fail.
+            double dist_to_last_published = (centroid - last_published_frontier_).norm();
+            if (dist_to_last_published < 3.0) {  // Skip if within 3m of last published (same cluster with noise)
+                RCLCPP_INFO(this->get_logger(),
+                    "Cluster %zu: X=%.2f, size=%zu - SKIPPED (within 3m of last published frontier, dist=%.2f m)",
+                    i, centroid.x(), clusters[i].indices.size(), dist_to_last_published);
+                continue;
+            }
             
             found_distant_cluster = true;
             
-            double size_score = static_cast<double>(clusters[i].indices.size()) * 5.0; // Bonus for larger clusters (reduced from 8.0)
-            double depth_bonus = -centroid.x() * 0.4; // Prefer deeper clusters (increased from 0.05 to strongly favor depth)
-            double distance_penalty = distance * 3.5; // Penalize distant frontiers (increased from 2.0)
+            double size_score = static_cast<double>(clusters[i].indices.size()) * 5.0; // Bonus for larger clusters
+            double depth_bonus = -centroid.x() * 0.4; // Prefer deeper clusters in X direction
+            double z_depth_bonus = -centroid.z() * 0.15; // Prefer downward exploration (increased from 0.1 for stronger Z preference)
+            double distance_penalty = distance * 3.5; // Penalize distant frontiers
             
-            // Add backtracking penalty: if cluster is backwards (less negative X) from current position, penalize it
-            double backtrack_penalty = 0.0;
-            if (centroid.x() > drone_pos.x()) {
-                // Cluster is backwards (towards entrance) from current position
-                double backtrack_distance = centroid.x() - drone_pos.x();
-                backtrack_penalty = backtrack_distance * 20.0; // Very strong penalty to avoid backtracking
+            // CONTINUITY SCORING: Prefer clusters that continue the last explored direction.
+            // If we have accepted frontier history, compute direction vector and bonus clusters along that path.
+            // This ensures we explore forward along the cave, not backwards or perpendicular.
+            double continuity_bonus = 0.0;
+            if (accepted_frontier_positions_.size() >= 2) {
+                // Direction from position N-2 to N-1 (last two accepted frontiers)
+                Eigen::Vector3d direction = 
+                    accepted_frontier_positions_.back() - accepted_frontier_positions_[accepted_frontier_positions_.size() - 2];
+                direction.normalize();
+                
+                // Vector from last accepted frontier to this cluster
+                Eigen::Vector3d to_cluster = centroid - accepted_frontier_positions_.back();
+                if (to_cluster.norm() > 0.1) {
+                    to_cluster.normalize();
+                    // Dot product: +1 = same direction, 0 = perpendicular, -1 = opposite
+                    // Crucially: NEGATIVE values indicate opposite direction (reversal), which we refuse
+                    double alignment = direction.dot(to_cluster);
+                    
+                    // Only give continuity bonus if alignment > 0.3 (more than ~72° forward)
+                    // This requirement ensures same signed-direction AND reasonable continuity
+                    if (alignment > 0.3) {
+                        // Stronger bonus for better alignment: scales from ~0 (perpendicular) to ~50 (same direction)
+                        continuity_bonus = alignment * alignment * 50.0;  // Square for stronger preference on high alignment
+                    }
+                    // Opposite/reverse directions (alignment < 0) get zero bonus automatically
+                }
             }
             
-            double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
-            if (centroid.x() > entrance_x) {
-                entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
+            // ENTRANCE BLOCKING: Hard reject any frontier trying to exit the cave.
+            // Entrance at X=-330, Y=10, Z=20. Block anything too close to entrance exit.
+            // Check all three dimensions to prevent escape attempts.
+            const double entrance_y = 10.0;
+            const double entrance_z = 20.0;
+            
+            // Soft entrance disc check: matching the voxel wall geometry (10m radius Y-Z, 3m thick X)
+            // Frontiers near the entrance should be deprioritized via continuity+depth scoring.
+            // Hard boundaries are unnecessary since the physical voxel wall prevents actual escape.
+            double entrance_penalty = 0.0;
+            double dist_yz = std::sqrt((centroid.y() - entrance_y)*(centroid.y() - entrance_y) + 
+                                      (centroid.z() - entrance_z)*(centroid.z() - entrance_z));
+            
+            // Mild penalty for clusters just outside entrance disc (X > -330+2, within 12m disc)
+            if (centroid.x() > entrance_x + 2.0 && dist_yz < 12.0) {
+                entrance_penalty = 10.0; // Mild penalty to discourage entrance-adjacent clusters
             }
-            double score = size_score + depth_bonus - distance_penalty - backtrack_penalty - entrance_penalty; // Combine factors
+            double score = size_score + depth_bonus + z_depth_bonus + continuity_bonus - distance_penalty - entrance_penalty; // Combine factors
             RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, dist_penalty=%.1f, backtrack_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
-                i, centroid.x(), clusters[i].indices.size(), distance,
-                size_score, depth_bonus, distance_penalty, backtrack_penalty, entrance_penalty, score);
+                "Cluster %zu: X=%.2f, Z=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, z_depth_bonus=%.1f, continuity_bonus=%.1f, dist_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
+                i, centroid.x(), centroid.z(), clusters[i].indices.size(), distance,
+                size_score, depth_bonus, z_depth_bonus, continuity_bonus, distance_penalty, entrance_penalty, score);
 
             if (score > best_score) {
                 best_score = score;
@@ -505,6 +584,9 @@ private:
         
         frontier_goal_pub_->publish(goal);
         publishFrontierHistoryMarkers(goal.pose.position);
+
+        // Track this as the last published frontier to avoid re-suggesting if it gets rejected
+        last_published_frontier_ = centroid;
         
         RCLCPP_INFO(this->get_logger(), 
             "Published frontier goal at (%.2f, %.2f, %.2f) with yaw=%.1f° from cluster size %zu", 
