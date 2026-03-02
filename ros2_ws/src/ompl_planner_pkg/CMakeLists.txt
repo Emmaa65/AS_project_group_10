@@ -29,12 +29,18 @@ find_package(mav_trajectory_generation REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
+find_package(FCL REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(ompl REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
 
 # Include directories
 include_directories(include)
 include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${PCL_INCLUDE_DIRS})
+include_directories(${OMPL_INCLUDE_DIRS})
+include_directories(${OCTOMAP_INCLUDE_DIRS})
 
 # ============================================================================
 # Exploration Manager Node
@@ -53,9 +59,11 @@ ament_target_dependencies(exploration_manager_node
   PCL
   pcl_conversions
   tf2
+  octomap_msgs
 )
 target_link_libraries(exploration_manager_node
   ${PCL_LIBRARIES}
+  ${OMPL_LIBRARIES}
 )
 target_include_directories(exploration_manager_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -65,7 +73,10 @@ target_include_directories(exploration_manager_node PUBLIC
 # ============================================================================
 # RRT Path Planner Node
 # ============================================================================
-add_executable(rrt_path_planner_node src/rrt_path_planner_node.cpp)
+add_executable(rrt_path_planner_node 
+  src/rrt_path_planner_node.cpp
+  src/collision_checker.cpp
+)
 ament_target_dependencies(rrt_path_planner_node
   rclcpp
   geometry_msgs
@@ -75,9 +86,16 @@ ament_target_dependencies(rrt_path_planner_node
   mav_trajectory_generation
   Eigen3
   PCL
+  pcl_conversions
+  FCL
+  ompl
+  octomap_msgs
 )
 target_link_libraries(rrt_path_planner_node
   ${PCL_LIBRARIES}
+  fcl
+  ${OMPL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
 )
 target_include_directories(rrt_path_planner_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

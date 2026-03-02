@@ -26,6 +26,7 @@
   <!-- 3D mapping and octomap -->
   <depend>pcl</depend>
   <depend>pcl_conversions</depend>
+  <depend>fcl</depend>
   
   <!-- RRT planning -->
   <!-- TODO: Add RRT* planning in Phase 2 -->

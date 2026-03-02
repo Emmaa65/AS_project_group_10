@@ -25,6 +25,7 @@
 #include <octomap/ColorOcTree.h>
 
 #include <Eigen/Dense>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <mutex>
 #include <chrono>
 #include <vector>
@@ -42,14 +43,19 @@ public:
         );
 
         current_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "current_state", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
+        "current_state_est", 10, std::bind(&FrontierExploration::currentStateCallback, this, std::placeholders::_1));
         
             // Timer Callback for Periodic Exploration (2 Hz)
         exploration_timer_ = this->create_wall_timer(
             std::chrono::duration<double>(0.5), std::bind(&FrontierExploration::explorationTimerCallback, this)
         );
 
-        // Frontier Goal Publisher
+        // Frontier Goals Publisher (list of ranked goals)
+        frontier_goals_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(
+            "/exploration/frontier_goals", 10
+        );
+        
+        // Single best goal publisher (for backward compatibility)
         frontier_goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
             "/exploration/frontier_goal", 10
         );
@@ -65,6 +71,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr current_state_sub_;
     rclcpp::TimerBase::SharedPtr exploration_timer_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr frontier_goal_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr frontier_goals_pub_;
     std::mutex mutex_;
     // Drone state
     std::mutex drone_state_mutex_;
@@ -78,6 +85,9 @@ private:
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 2.0; // Minimum distance from obstacles (meters)
+    // Track last frontier goal to avoid backtracking
+    Eigen::Vector3d last_frontier_goal_ = Eigen::Vector3d::Zero();
+    double backtrack_penalty_distance_ = 30.0; // Threshold distance (meters) within which backtracking is heavily penalized
 
     // Callbacks (lightweight stubs to allow compilation)
     void octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
@@ -128,7 +138,7 @@ private:
         // Collect frontier points
         PointCloudPtr frontier_cloud(new PointCloud);
         collectFrontierPoints(frontier_cloud);
-        RCLCPP_INFO(this->get_logger(), "explorationTimerCallback: frontier_points=%zu", frontier_cloud->points.size());
+        // RCLCPP_INFO(this->get_logger(), "explorationTimerCallback: frontier_points=%zu", frontier_cloud->points.size());
         if (frontier_cloud->points.empty()) {
             RCLCPP_DEBUG(this->get_logger(), "explorationTimerCallback: no frontier points detected");
             return;
@@ -136,37 +146,40 @@ private:
 
         // Cluster frontiers
         auto cluster_indices = clusterFrontiers(frontier_cloud);
-        RCLCPP_INFO(this->get_logger(), "explorationTimerCallback: clusters=%zu", cluster_indices.size());
+        // RCLCPP_INFO(this->get_logger(), "explorationTimerCallback: clusters=%zu", cluster_indices.size());
         if (cluster_indices.size()==0) {
             RCLCPP_DEBUG(this->get_logger(), "explorationTimerCallback: no clusters found");
             return;
         }
 
-    // Select best cluster: prefer clusters deeper in the cave (smaller X)
-    // with a size bonus to avoid tiny outliers
-    size_t best_idx = findBestCluster(cluster_indices, frontier_cloud);
-
-    // Compute centroid (XY average of frontier cluster)
-    Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[best_idx]);
+    // Get all clusters ranked by score (best first)
+    auto ranked_clusters = rankClustersByScore(cluster_indices, frontier_cloud);
     
-    // Adjust Z to be in the middle of the cave at this XY position
-    Eigen::Vector3d adjusted_centroid = adjustZToMidHeight(centroid);
+    /*RCLCPP_INFO(this->get_logger(), 
+        "Found %zu ranked clusters, publishing top %zu goals",
+        ranked_clusters.size(), std::min(size_t(10), ranked_clusters.size()));*/
     
-    RCLCPP_INFO(this->get_logger(), 
-        "Selected cluster %zu (size=%zu, X=%.2f): centroid: (%.2f, %.2f, %.2f) -> adjusted: (%.2f, %.2f, %.2f)",
-        best_idx, cluster_indices[best_idx].indices.size(), centroid.x(),
-        centroid.x(), centroid.y(), centroid.z(),
-        adjusted_centroid.x(), adjusted_centroid.y(), adjusted_centroid.z());
+    // Publish all ranked goals as a list
+    publishRankedGoals(ranked_clusters, frontier_cloud, cluster_indices);
     
-    publishGoalFromCentroid(adjusted_centroid, cluster_indices[best_idx].indices.size());
+    // Also publish the best goal individually for backward compatibility
+    if (!ranked_clusters.empty()) {
+        size_t best_idx = ranked_clusters[0].first; // Index of best cluster
+        double best_score = ranked_clusters[0].second; // Score of best cluster
+        
+        Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[best_idx]);
+        Eigen::Vector3d adjusted_centroid = centroid; //adjustZToMidHeight(centroid);
+        
+        publishGoalFromCentroid(adjusted_centroid, cluster_indices[best_idx].indices.size());
+    }
     }
 
 
     void collectFrontierPoints(PointCloudPtr &frontier_cloud) {
         frontier_cloud->clear();
         std::array<std::array<int,3>,6> offsets = {{{{1,0,0}},{{-1,0,0}},{{0,1,0}},{{0,-1,0}},{{0,0,1}},{{0,0,-1}}}};
-        RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: start (has_color=%s has_plain=%s)",
-                    color_octree_?"true":"false", octree_?"true":"false");
+        /*RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: start (has_color=%s has_plain=%s)",
+                    color_octree_?"true":"false", octree_?"true":"false");*/
 
         if (color_octree_) {
             auto &ct = *color_octree_;
@@ -201,7 +214,7 @@ private:
                     }
                 }
             }
-            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", checked, found);
+            // RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", checked, found);
         } else if (octree_) {
             auto &ot = *octree_;
             double res = ot.getResolution();
@@ -235,7 +248,7 @@ private:
                     }
                 }
             }
-            RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", checked, found);
+            // RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", checked, found);
         }
     }
 
@@ -266,6 +279,117 @@ private:
             }
         }
         return largest_idx;
+    }
+
+    // Rank all clusters by score (returns vector of {cluster_index, score} pairs sorted by score descending)
+    std::vector<std::pair<size_t, double>> rankClustersByScore(const std::vector<pcl::PointIndices> &clusters,
+                                                                const PointCloudPtr &cloud) {
+        std::vector<std::pair<size_t, double>> ranked_clusters; // {index, score}
+        
+        if (clusters.empty()) return ranked_clusters;
+        
+        // Get current drone position
+        Eigen::Vector3d drone_pos;
+        {
+            std::lock_guard<std::mutex> lock(drone_state_mutex_);
+            drone_pos.x() = current_pose_.position.x;
+            drone_pos.y() = current_pose_.position.y;
+            drone_pos.z() = current_pose_.position.z;
+        }
+        RCLCPP_INFO(this->get_logger(),
+                    "Current Pose: X=%.2f, Y=%.2f, Z=%.2f",
+                    drone_pos.x(), drone_pos.y(), drone_pos.z());
+        
+        const double min_distance = 5.0;
+        const double entrance_x = -350.0;
+        
+        // Compute scores for all clusters
+        for (size_t i = 0; i < clusters.size(); ++i) {
+            Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
+            double distance = (centroid - drone_pos).norm();
+            
+            // Skip clusters that are too close or unsafe
+            if (distance < min_distance) continue;
+            if (!isSafePosition(centroid)) continue;
+            
+            double size_score = static_cast<double>(clusters[i].indices.size()) * 8.0;
+            double depth_bonus = 0; // -centroid.x() * 0.05;
+            double distance_score = (200.0 - std::min(distance, 200.0)) * 5.0;
+            double entrance_penalty = 0.0;
+            if (centroid.x() > entrance_x) {
+                entrance_penalty = (centroid.x() - entrance_x) * 100.0;
+            }
+            // Penalize backtracking: clusters too close to where we were before are heavily penalized
+            double backtrack_penalty = 0.0;
+            double distance_to_last_goal = (centroid - last_frontier_goal_).norm();
+            if (distance_to_last_goal < backtrack_penalty_distance_ && last_frontier_goal_.norm() > 0.1) {
+                // Strong penalty proportional to how close we are to the last goal
+                backtrack_penalty = (backtrack_penalty_distance_ - distance_to_last_goal) * 50.0;
+            }
+            
+            double score = size_score + depth_bonus + distance_score - entrance_penalty - backtrack_penalty;
+            ranked_clusters.push_back({i, score});
+        }
+        
+        // Sort by score (descending - best first)
+        std::sort(ranked_clusters.begin(), ranked_clusters.end(),
+                  [](const auto &a, const auto &b) { return a.second > b.second; });
+        
+        return ranked_clusters;
+    }
+
+    // Publish ranked frontier goals as a PoseArray
+    void publishRankedGoals(const std::vector<std::pair<size_t, double>> &ranked_clusters,
+                           const PointCloudPtr &cloud,
+                           const std::vector<pcl::PointIndices> &cluster_indices) {
+        if (!frontier_goals_pub_ || ranked_clusters.empty()) return;
+        
+        geometry_msgs::msg::PoseArray goal_array;
+        goal_array.header.stamp = this->now();
+        goal_array.header.frame_id = "map";
+        
+        // Limit to top 10 goals for visualization/planning
+        size_t num_goals = std::min(size_t(15), ranked_clusters.size());
+        
+        for (size_t i = 0; i < num_goals; ++i) {
+            size_t cluster_idx = ranked_clusters[i].first;
+            double score = ranked_clusters[i].second;
+            
+            Eigen::Vector3d centroid = computeClusterCentroid(cloud, cluster_indices[cluster_idx]);
+            Eigen::Vector3d adjusted_centroid = centroid; //adjustZToMidHeight(centroid);
+            
+            // Calculate yaw to point towards goal
+            Eigen::Vector3d drone_pos;
+            {
+                std::lock_guard<std::mutex> lock(drone_state_mutex_);
+                drone_pos.x() = current_pose_.position.x;
+                drone_pos.y() = current_pose_.position.y;
+                drone_pos.z() = current_pose_.position.z;
+            }
+            Eigen::Vector3d direction = adjusted_centroid - drone_pos;
+            double yaw = std::atan2(direction.y(), direction.x()) + M_PI;
+            double half_yaw = yaw / 2.0;
+            
+            // Create pose for this goal
+            geometry_msgs::msg::Pose pose;
+            pose.position.x = adjusted_centroid.x();
+            pose.position.y = adjusted_centroid.y();
+            pose.position.z = adjusted_centroid.z();
+            pose.orientation.x = 0.0;
+            pose.orientation.y = 0.0;
+            pose.orientation.z = std::sin(half_yaw);
+            pose.orientation.w = std::cos(half_yaw);
+            
+            goal_array.poses.push_back(pose);
+            
+            /* RCLCPP_INFO(this->get_logger(),
+                "Goal #%zu: (%.2f, %.2f, %.2f), cluster_size=%zu, score=%.1f",
+                i + 1, adjusted_centroid.x(), adjusted_centroid.y(), adjusted_centroid.z(),
+                cluster_indices[cluster_idx].indices.size(), score);*/
+        }
+        
+        frontier_goals_pub_->publish(goal_array);
+        // RCLCPP_INFO(this->get_logger(), "Published %zu ranked frontier goals", num_goals);
     }
 
     // Find best cluster for exploration: prefer clusters deeper in cave (smaller X)
@@ -315,17 +439,26 @@ private:
             found_distant_cluster = true;
             
             double size_score = static_cast<double>(clusters[i].indices.size()) * 8.0; // Bonus for larger clusters
-            double depth_bonus = -centroid.x() * 0.05; // Prefer deeper clusters (smaller X) with a smaller weight
-            double distance_score = std::min(distance, 200.0) * 0.5; // Bonus for being farther from drone, capped at 200m
+            double depth_bonus = 0; //-centroid.x() * 0.05; // Prefer deeper clusters (smaller X) with a smaller weight
+            double distance_score = (200.0 - std::min(distance, 200.0)) * 5.0; // Strongly prefer closer goals // Bonus for being farther from drone, capped at 200m
             double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
             if (centroid.x() > entrance_x) {
                 entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
             }
-            double score = size_score + depth_bonus + distance_score - entrance_penalty; // Combine factors
-            RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, entrance_penalty=%.1f, total=%.1f",
+            
+            // Penalize backtracking: clusters too close to where we were before are heavily penalized
+            double backtrack_penalty = 0.0;
+            double distance_to_last_goal = (centroid - last_frontier_goal_).norm();
+            if (distance_to_last_goal < backtrack_penalty_distance_ && last_frontier_goal_.norm() > 0.1) {
+                // Strong penalty proportional to how close we are to the last goal
+                backtrack_penalty = (backtrack_penalty_distance_ - distance_to_last_goal) * 50.0;
+            }
+            
+            double score = size_score + depth_bonus + distance_score - entrance_penalty - backtrack_penalty; // Combine factors
+            /* RCLCPP_INFO(this->get_logger(),
+                "Cluster %zu: X=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, entrance_penalty=%.1f, backtrack_penalty=%.1f, total=%.1f",
                 i, centroid.x(), clusters[i].indices.size(), distance,
-                size_score, depth_bonus, entrance_penalty, score);
+                size_score, depth_bonus, entrance_penalty, backtrack_penalty, score);*/
 
             if (score > best_score) {
                 best_score = score;
@@ -415,9 +548,9 @@ private:
                     }
                     
                     if (occupied) {
-                        RCLCPP_INFO(this->get_logger(), 
+                        /*RCLCPP_INFO(this->get_logger(), 
                             "isSafePosition: UNSAFE at (%.2f, %.2f, %.2f) - obstacle at (%.2f, %.2f, %.2f)",
-                            pos.x(), pos.y(), pos.z(), check_x, check_y, check_z);
+                            pos.x(), pos.y(), pos.z(), check_x, check_y, check_z);*/
                         // Found obstacle within safety margin
                         return false;
                     }
@@ -475,8 +608,8 @@ private:
             double height = z_max_occupied - z_min_occupied;
             
             // Safety checks
-            const double min_passage_height = 3.0;  // Minimum clearance needed
-            const double max_flight_z = 35.0;        // Maximum safe altitude
+            const double min_passage_height = 2.0;  // Minimum clearance needed
+            const double max_flight_z = 45.0;        // Maximum safe altitude
             
             if (height < min_passage_height) {
                 RCLCPP_WARN(this->get_logger(), 
@@ -492,15 +625,15 @@ private:
             
             // Cap at maximum safe altitude
             if (adjusted.z() > max_flight_z) {
-                RCLCPP_WARN(this->get_logger(),
+                /*RCLCPP_WARN(this->get_logger(),
                     "Adjusted Z=%.2f exceeds max safe altitude %.2f, capping",
-                    adjusted.z(), max_flight_z);
+                    adjusted.z(), max_flight_z);*/
                 adjusted.z() = max_flight_z;
             }
             
-            RCLCPP_INFO(this->get_logger(), 
+            /*RCLCPP_INFO(this->get_logger(), 
                 "Adjusted Z from %.2f to %.2f (floor=%.2f, ceiling=%.2f, height=%.2fm)",
-                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied, height);
+                centroid.z(), adjusted.z(), z_min_occupied, z_max_occupied, height);*/
         } else {
             RCLCPP_WARN(this->get_logger(),
                 "No occupied voxels found in Z-column at (%.2f, %.2f), using safe default Z=15.0",
@@ -552,6 +685,9 @@ private:
         goal.pose.orientation.w = std::cos(half_yaw);
         
         frontier_goal_pub_->publish(goal);
+        
+        // Track this goal to avoid backtracking
+        last_frontier_goal_ = centroid;
         
         RCLCPP_INFO(this->get_logger(), 
             "Published frontier goal at (%.2f, %.2f, %.2f) with yaw=%.1f° from cluster size %zu", 
