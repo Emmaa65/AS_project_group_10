@@ -246,6 +246,7 @@ def generate_launch_description():
             {"sensor_model.max_range": 75.0},
             {"save_on_shutdown": save_octomap_on_shutdown},
             {"save_map_path": octomap_save_path},
+            {"autosave_interval_sec": octomap_autosave_interval_sec},
         ],
         remappings=[
             ("cloud_in", "/camera/pointcloud_raw"),
