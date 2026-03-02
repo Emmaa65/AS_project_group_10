@@ -363,7 +363,7 @@ private:
         size_t best_idx = 0;
         double best_score = -std::numeric_limits<double>::infinity();
         const double min_distance = 5.0;  // Minimum distance from drone (meters) - reduced for deep exploration
-        const double max_frontier_distance = 300.0;  // Increased from 200m to allow backtracking to major clusters
+        const double max_frontier_distance = 500.0;  // Increased from 200m to allow backtracking to major clusters
         
         // First pass: try to find clusters far enough from drone
         bool found_distant_cluster = false;
@@ -402,10 +402,10 @@ private:
             
             found_distant_cluster = true;
             
-            double size_score = static_cast<double>(clusters[i].indices.size()) * 5.0; // Bonus for larger clusters
-            double depth_bonus = -centroid.x() * 0.4; // Prefer deeper clusters in X direction
+            double size_score = static_cast<double>(clusters[i].indices.size()) * 2.0; // Bonus for larger clusters
+            double depth_bonus = -centroid.x() * 0.0; // Prefer deeper clusters in X direction
             double z_depth_bonus = -centroid.z() * 0.15; // Prefer downward exploration (increased from 0.1 for stronger Z preference)
-            double distance_penalty = distance * 3.5; // Penalize distant frontiers
+            double distance_penalty = distance * 1.5; // Penalize distant frontiers
             
             // CONTINUITY SCORING: Prefer clusters that continue the last explored direction.
             // If we have accepted frontier history, compute direction vector and bonus clusters along that path.
@@ -441,7 +441,7 @@ private:
                         // alignment +1.0 (forward) -> bonus +30.0
                         // alignment  0.0 (perpendicular) -> bonus 0.0
                         // alignment -1.0 (backward/reversal) -> penalty -30.0
-                        continuity_bonus = alignment * 30.0;
+                        continuity_bonus = alignment * 80.0;
 
                         RCLCPP_INFO(this->get_logger(),
                             "Continuity debug: history=%zu, dir_norm=%.2f, to_cluster_norm=%.2f, alignment=%.3f, signed_bonus=%.2f",

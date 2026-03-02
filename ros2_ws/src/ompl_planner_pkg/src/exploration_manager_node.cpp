@@ -16,7 +16,7 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("entrance_reach_tolerance", 1.5);
   this->declare_parameter("frontier_update_rate", 2.0);
   this->declare_parameter("min_frontier_distance", 0.5);
-  this->declare_parameter("max_frontier_distance", 300.0);
+  this->declare_parameter("max_frontier_distance", 1000.0);
   this->declare_parameter("cave_interior_margin_x", 1.0);
   this->declare_parameter("frontier_blacklist_radius", 15.0);
   this->declare_parameter("frontier_stall_timeout_s", 20.0);

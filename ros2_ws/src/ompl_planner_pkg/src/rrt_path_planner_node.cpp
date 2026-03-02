@@ -436,6 +436,12 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
 
 bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
   const auto *pos = state->as<ompl::base::RealVectorStateSpace::StateType>();
+  Eigen::Vector3d p((*pos)[0], (*pos)[1], (*pos)[2]);
+  
+  // START-POSITION IMMER GÜLTIG: Drohne ist schon dort, also frei von Hindernissen
+  if ((p - current_position_).norm() < 0.5) {
+    return true;  // Inside start region, always valid
+  }
   
   // ENTRANCE BLOCKING: Apply synthetic entrance disc barrier.
   // This acts as a SOLID OBSTACLE - RRT* cannot plan paths through it.
@@ -449,7 +455,7 @@ bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
     const double entrance_z = cave_entrance_[2];  // 20
     const double wall_x_start = entrance_x + 2.0;    // -328 (2m outside entrance, wall start - closer to cave)
     const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance, wall end)
-    const double wall_disc_radius = 20.0;  // 20m radius in Y-Z plane - DOUBLED from 10m
+    const double wall_disc_radius = 20.0;  // 20m radius in Y-Z plane
     
     // Calculate Y-Z distance from wall center
     double dist_yz = std::sqrt(((*pos)[1] - entrance_y)*((*pos)[1] - entrance_y) + 
