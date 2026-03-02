@@ -151,12 +151,27 @@ private:
         // Receive accepted frontier positions from exploration_manager
         // This populates the history for continuity-based scoring
         if (!msg) return;
+        std::lock_guard<std::mutex> lock(mutex_);
         
         Eigen::Vector3d accepted_pos(
             msg->pose.position.x,
             msg->pose.position.y,
             msg->pose.position.z
         );
+
+        // Ignore near-duplicate accepted frontiers (e.g., replans to same goal)
+        // to avoid zero-length direction vectors in continuity scoring.
+        if (!accepted_frontier_positions_.empty()) {
+            const double duplicate_distance =
+                (accepted_pos - accepted_frontier_positions_.back()).norm();
+            if (duplicate_distance < 1.0) {
+                RCLCPP_INFO(this->get_logger(),
+                    "Accepted frontier [%.2f, %.2f, %.2f] ignored as duplicate (%.2f m from last), history size: %zu",
+                    accepted_pos.x(), accepted_pos.y(), accepted_pos.z(),
+                    duplicate_distance, accepted_frontier_positions_.size());
+                return;
+            }
+        }
         
         // Add to history (keep last N positions for continuity calculation)
         accepted_frontier_positions_.push_back(accepted_pos);
@@ -396,27 +411,46 @@ private:
             // If we have accepted frontier history, compute direction vector and bonus clusters along that path.
             // This ensures we explore forward along the cave, not backwards or perpendicular.
             double continuity_bonus = 0.0;
-            if (accepted_frontier_positions_.size() >= 2) {
-                // Direction from position N-2 to N-1 (last two accepted frontiers)
-                Eigen::Vector3d direction = 
-                    accepted_frontier_positions_.back() - accepted_frontier_positions_[accepted_frontier_positions_.size() - 2];
-                direction.normalize();
+            if (accepted_frontier_positions_.size() >= 1) {
+                // For single frontier: estimate direction from drone position to last accepted frontier
+                // For 2+ frontiers: use direction from N-2 to N-1 (last two accepted frontiers)
+                Eigen::Vector3d direction;
+                if (accepted_frontier_positions_.size() >= 2) {
+                    // Direction: from older frontier to newer frontier (forward along travel path)
+                    direction = 
+                        accepted_frontier_positions_.back() - accepted_frontier_positions_[accepted_frontier_positions_.size() - 2];
+                } else {
+                    // With only 1 frontier, use direction from that frontier to drone (reverse to see forward intent)
+                    // This captures where we're heading FROM that explored frontier
+                    direction = Eigen::Vector3d(current_pose_.position.x, current_pose_.position.y, current_pose_.position.z) -
+                        accepted_frontier_positions_.back();
+                }
+                const double direction_norm = direction.norm();
+                if (direction_norm > 0.1) {
+                    direction /= direction_norm;
                 
-                // Vector from last accepted frontier to this cluster
-                Eigen::Vector3d to_cluster = centroid - accepted_frontier_positions_.back();
-                if (to_cluster.norm() > 0.1) {
-                    to_cluster.normalize();
-                    // Dot product: +1 = same direction, 0 = perpendicular, -1 = opposite
-                    // Crucially: NEGATIVE values indicate opposite direction (reversal), which we refuse
-                    double alignment = direction.dot(to_cluster);
+                    // Vector from last accepted frontier to this cluster
+                    Eigen::Vector3d to_cluster = centroid - accepted_frontier_positions_.back();
+                    const double to_cluster_norm = to_cluster.norm();
+                    if (to_cluster_norm > 0.1) {
+                        to_cluster /= to_cluster_norm;
+                        // Dot product: +1 = same direction, 0 = perpendicular, -1 = opposite
+                        double alignment = direction.dot(to_cluster);
                     
-                    // Only give continuity bonus if alignment > 0.3 (more than ~72° forward)
-                    // This requirement ensures same signed-direction AND reasonable continuity
-                    if (alignment > 0.3) {
-                        // Stronger bonus for better alignment: scales from ~0 (perpendicular) to ~50 (same direction)
-                        continuity_bonus = alignment * alignment * 50.0;  // Square for stronger preference on high alignment
+                        // SIGNED CONTINUITY: reward forward-aligned clusters, penalize backward ones
+                        // alignment +1.0 (forward) -> bonus +30.0
+                        // alignment  0.0 (perpendicular) -> bonus 0.0
+                        // alignment -1.0 (backward/reversal) -> penalty -30.0
+                        continuity_bonus = alignment * 30.0;
+
+                        RCLCPP_INFO(this->get_logger(),
+                            "Continuity debug: history=%zu, dir_norm=%.2f, to_cluster_norm=%.2f, alignment=%.3f, signed_bonus=%.2f",
+                            accepted_frontier_positions_.size(), direction_norm, to_cluster_norm, alignment, continuity_bonus);
                     }
-                    // Opposite/reverse directions (alignment < 0) get zero bonus automatically
+                } else {
+                    RCLCPP_INFO(this->get_logger(),
+                        "Continuity debug: history=%zu but direction norm too small (%.3f), bonus stays 0.0",
+                        accepted_frontier_positions_.size(), direction_norm);
                 }
             }
             
@@ -587,6 +621,10 @@ private:
 
         // Track this as the last published frontier to avoid re-suggesting if it gets rejected
         last_published_frontier_ = centroid;
+
+        RCLCPP_INFO(this->get_logger(),
+            "Continuity publish debug: published frontier with accepted history size=%zu",
+            accepted_frontier_positions_.size());
         
         RCLCPP_INFO(this->get_logger(), 
             "Published frontier goal at (%.2f, %.2f, %.2f) with yaw=%.1f° from cluster size %zu", 
