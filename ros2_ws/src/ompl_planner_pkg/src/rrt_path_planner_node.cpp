@@ -11,6 +11,7 @@
  */
 
 #include "ompl_planner_pkg/rrt_path_planner.hpp"
+#include <complex>
 
 RRTPathPlanner::RRTPathPlanner() 
   : rclcpp::Node("rrt_path_planner") {
@@ -32,6 +33,7 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("min_frontier_z", -33.5); // Keep above cave floor
   this->declare_parameter("collision_check_resolution", 0.3);
   this->declare_parameter("robot_radius", 0.3);  // Drone is 0.2x0.2m, add small safety margin
+  this->declare_parameter("too_close_to_entrance", 0.5); // Avoid going back to entrance
   
   max_planning_time_ = this->get_parameter("max_planning_time").as_double();
   step_size_ = this->get_parameter("step_size").as_double();
@@ -47,7 +49,9 @@ RRTPathPlanner::RRTPathPlanner()
   min_frontier_z_ = this->get_parameter("min_frontier_z").as_double();
   collision_check_resolution_ = this->get_parameter("collision_check_resolution").as_double();
   robot_radius_ = this->get_parameter("robot_radius").as_double();
-  
+  TOO_CLOSE_TO_ENTRANCE = this->get_parameter("too_close_to_entrance").as_double();
+
+
   // Subscribers
   sub_target_frontier_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
     "target_frontier", 10,
@@ -683,7 +687,7 @@ bool RRTPathPlanner::isFrontierValid(const Eigen::Vector3d& frontier) {
   
   // Check 2: Cave X-coordinates are always < -330 (cave entrance X)
   // Reject frontiers outside the cave (X >= -330)
-  if (frontier[0] >= cave_entrance_[0]) {
+  if ((frontier- cave_entrance_).norm()< TOO_CLOSE_TO_ENTRANCE) {
     RCLCPP_DEBUG(this->get_logger(),
       "Rejecting frontier [%.2f, %.2f, %.2f] - outside cave (X=%.2f >= cave_entrance_x=%.2f)",
       frontier[0], frontier[1], frontier[2], frontier[0], cave_entrance_[0]);

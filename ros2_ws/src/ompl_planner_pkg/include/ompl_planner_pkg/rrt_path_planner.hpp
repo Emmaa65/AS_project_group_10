@@ -81,6 +81,9 @@ private:
   double collision_check_resolution_ = 0.3;  // Resolution for collision checking (meters)
   double robot_radius_ = 0.3;  // Safety sphere around drone (meters); drone is 0.2x0.2m
   
+  //Check against entrance
+  double TOO_CLOSE_TO_ENTRANCE;
+  
   // OctoMap for collision checking
   std::shared_ptr<octomap::OcTree> octree_;
   std::mutex octree_mutex_;

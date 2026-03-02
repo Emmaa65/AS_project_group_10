@@ -1,3 +1,4 @@
+//#include <Eigen/src/Core/Matrix.h>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -89,8 +90,10 @@ private:
     double cluster_tolerance_ = 3.0; // meters - distance threshold for points to belong to same cluster
     int min_cluster_size_ = 50;  // Ignore small clusters (noise/small gaps)
     int max_cluster_size_ = 10000;
+
+    Eigen::Vector3d cave_entrance_ = Eigen::Vector3d(-330.0, 10.0, 20.0);
+    double RADIUS = 5.0; 
     // Cave entrance filter (only consider frontiers inside cave)
-    double max_frontier_x_ = -330.0; // Cave extends only in X < -330
     double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
     bool frontier_request_pending_ = false;
@@ -217,16 +220,16 @@ private:
                     if (!node) { is_frontier = true; break; }
                     if (ct.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
+                Eigen::Vector3d frontier_temp(x,y,z);
                 if (is_frontier) {
                     // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
-                        pcl::PointXYZ p;
+                    if(isBehindCaveEntrance(frontier_temp))
+                       { pcl::PointXYZ p;
                         p.x = static_cast<float>(x);
                         p.y = static_cast<float>(y);
                         p.z = static_cast<float>(z);
                         frontier_cloud->points.push_back(p);
-                        ++found;
-                    }
+                        ++found;}
                 }
             }
             RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: color_octree checked=%zu frontier_points=%zu", checked, found);
@@ -251,16 +254,17 @@ private:
                     if (!node) { is_frontier = true; break; }
                     if (ot.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
+                Eigen::Vector3d frontier_temp(x,y,z);
                 if (is_frontier) {
                     // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
-                        pcl::PointXYZ p;
+                    if(isBehindCaveEntrance(frontier_temp))
+                       { pcl::PointXYZ p;
                         p.x = static_cast<float>(x);
                         p.y = static_cast<float>(y);
                         p.z = static_cast<float>(z);
                         frontier_cloud->points.push_back(p);
-                        ++found;
-                    }
+                        ++found;}
+                    
                 }
             }
             RCLCPP_INFO(this->get_logger(), "collectFrontierPoints: oc_tree checked=%zu frontier_points=%zu", checked, found);
@@ -317,7 +321,7 @@ private:
         
         // First pass: try to find clusters far enough from drone
         bool found_distant_cluster = false;
-        const double entrance_x = -350.0;  // Cave entrance region (penalize return to entrance)
+        //const double entrance_x = -350.0;  // Cave entrance region (penalize return to entrance)
         
         for (size_t i = 0; i < clusters.size(); ++i) {
             // Compute cluster centroid
@@ -355,8 +359,8 @@ private:
             }
             
             double entrance_penalty = 0.0; // Penalize clusters near the entrance (X > -350) to encourage deeper exploration
-            if (centroid.x() > entrance_x) {
-                entrance_penalty = (centroid.x() - entrance_x) * 100.0; // Strong penalty for clusters near entrance to avoid getting stuck there
+            if (!isBehindCaveEntrance(centroid)) { //centroid is outside cave
+                entrance_penalty = 100.0 * (centroid-drone_pos).norm(); // Strong penalty for clusters near entrance to avoid getting stuck there
             }
             double score = size_score + depth_bonus - distance_penalty - backtrack_penalty - entrance_penalty; // Combine factors
             RCLCPP_INFO(this->get_logger(),
@@ -558,6 +562,20 @@ private:
 
         frontier_goal_markers_pub_->publish(marker_array);
     }
+
+    bool isBehindCaveEntrance(const Eigen::Vector3d& frontier) {
+        //check if frontier is in the cylinder of the entrance
+        double dy = frontier[1] - cave_entrance_[1];
+        double dz = frontier[2] - cave_entrance_[2];
+        bool isInCylinder = (dy * dy + dz * dz) <= (RADIUS * RADIUS);
+
+        if(isInCylinder){
+            //If in cylinder, then check also x coordinate, if frontier is outside cave return false
+            if(frontier[0]> cave_entrance_[0]) return false;
+            return true;
+        }
+    return false;
+}
 };
 
 int main(int argc, char ** argv) {
