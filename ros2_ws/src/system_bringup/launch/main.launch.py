@@ -301,19 +301,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    start_cave_stack_on_trajectory_finish = RegisterEventHandler(
-        OnProcessExit(
-            target_action=wait_for_trajectory_finish,
-            on_exit=[
-                depth_to_pointcloud_node,
-                perception_launch,
-                octomap_server_node,
-                object_detection_launch,
-            ],
-        )
-    )
-
-    # RViz node
+    # RViz node (defined here before event handler references it)
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -327,6 +315,44 @@ def generate_launch_description():
         condition=IfCondition(enable_rviz),
     )
 
+    start_cave_stack_on_trajectory_finish = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_for_trajectory_finish,
+            on_exit=[
+                depth_to_pointcloud_node,
+                perception_launch,
+                octomap_server_node,
+                octomap_server_node_raw,
+                object_detection_launch,
+                rviz_node,
+                Node(
+                    package="navigation_pkg",
+                    executable="frontier_exploration",
+                    name="frontier_exploration",
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+                # Exploration manager and RRT path planner
+                Node(
+                    package="ompl_planner_pkg",
+                    executable="exploration_manager_node",
+                    name="exploration_manager",
+                    parameters=[ompl_params_file],
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+                Node(
+                    package="ompl_planner_pkg",
+                    executable="rrt_path_planner_node",
+                    name="rrt_path_planner",
+                    parameters=[ompl_params_file],
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+            ],
+        )
+    )
+
     return LaunchDescription(
         declared_args
         + [
@@ -335,35 +361,6 @@ def generate_launch_description():
             waypoint_launch,
             wait_for_trajectory_finish,
             start_cave_stack_on_trajectory_finish,
-            depth_to_pointcloud_node,
             pointcloud_filter_node,
-            octomap_server_node,
-            octomap_server_node_raw,
-            rviz_node,
-            # Frontier exploration node
-            Node(
-                package="navigation_pkg",
-                executable="frontier_exploration",
-                name="frontier_exploration",
-                output="screen",
-                condition=IfCondition(enable_frontier),
-            ),
-            # Exploration manager and RRT path planner
-            Node(
-                package="ompl_planner_pkg",
-                executable="exploration_manager_node",
-                name="exploration_manager",
-                parameters=[ompl_params_file],
-                output="screen",
-                condition=IfCondition(enable_frontier),
-            ),
-            Node(
-                package="ompl_planner_pkg",
-                executable="rrt_path_planner_node",
-                name="rrt_path_planner",
-                parameters=[ompl_params_file],
-                output="screen",
-                condition=IfCondition(enable_frontier),
-            ),
         ]
     )
