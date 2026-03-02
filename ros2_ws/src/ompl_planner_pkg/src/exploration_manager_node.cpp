@@ -16,6 +16,11 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("entrance_reach_tolerance", 1.5);
   this->declare_parameter("frontier_update_rate", 2.0);
   this->declare_parameter("min_frontier_distance", 0.5);
+  this->declare_parameter("max_frontier_distance", 200.0);
+  this->declare_parameter("cave_interior_margin_x", 1.0);
+  this->declare_parameter("frontier_blacklist_radius", 15.0);
+  this->declare_parameter("frontier_stall_timeout_s", 20.0);
+  this->declare_parameter("frontier_progress_epsilon_m", 0.3);
   
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
@@ -23,6 +28,11 @@ ExplorationManager::ExplorationManager()
   entrance_reach_tolerance_ = this->get_parameter("entrance_reach_tolerance").as_double();
   frontier_update_rate_ = this->get_parameter("frontier_update_rate").as_double();
   min_frontier_distance_ = this->get_parameter("min_frontier_distance").as_double();
+  max_frontier_distance_ = this->get_parameter("max_frontier_distance").as_double();
+  cave_interior_margin_x_ = this->get_parameter("cave_interior_margin_x").as_double();
+  frontier_blacklist_radius_ = this->get_parameter("frontier_blacklist_radius").as_double();
+  frontier_stall_timeout_s_ = this->get_parameter("frontier_stall_timeout_s").as_double();
+  frontier_progress_epsilon_m_ = this->get_parameter("frontier_progress_epsilon_m").as_double();
   
   // Subscribers
   sub_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -55,10 +65,14 @@ ExplorationManager::ExplorationManager()
   
   last_frontier_selection_ = this->get_clock()->now();
   last_frontier_request_time_ = this->get_clock()->now();
+  active_frontier_last_progress_time_ = this->get_clock()->now();
   
   RCLCPP_INFO(this->get_logger(), 
     "Cave entrance set to: [%.2f, %.2f, %.2f]",
     cave_entrance_[0], cave_entrance_[1], cave_entrance_[2]);
+  RCLCPP_INFO(this->get_logger(),
+    "Frontier filters: min_dist=%.1f m, max_dist=%.1f m, blacklist_radius=%.1f m, cave_margin_x=%.1f m",
+    min_frontier_distance_, max_frontier_distance_, frontier_blacklist_radius_, cave_interior_margin_x_);
 }
 
 // ============================================================================
@@ -72,7 +86,8 @@ void ExplorationManager::odometryCallback(const nav_msgs::msg::Odometry::SharedP
     msg->twist.twist.linear.y,
     msg->twist.twist.linear.z;
 
-  if (selected_frontier_.distance > 0.0) {
+  // Update frontier distance if frontier is active (distance >= 0; -1 means consumed/transitioning)
+  if (selected_frontier_.distance >= 0.0) {
     selected_frontier_.distance = (selected_frontier_.position - current_position_).norm();
   }
 }
@@ -96,6 +111,33 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
       frontier.distance, min_frontier_distance_);
     return; // Ignore this frontier
   }
+
+  // Reject frontiers beyond max distance (often stale/outside artifacts)
+  if (frontier.distance > max_frontier_distance_) {
+    RCLCPP_WARN(this->get_logger(),
+      "Rejecting frontier [%.2f, %.2f, %.2f]: too far (%.2f m > max %.2f m)",
+      frontier.position[0], frontier.position[1], frontier.position[2],
+      frontier.distance, max_frontier_distance_);
+    return;
+  }
+
+  // Keep frontiers strictly inside cave boundary with safety margin
+  if (frontier.position[0] >= (cave_entrance_[0] - cave_interior_margin_x_)) {
+    RCLCPP_WARN(this->get_logger(),
+      "Rejecting frontier [%.2f, %.2f, %.2f] near/outside cave boundary (x=%.2f >= %.2f)",
+      frontier.position[0], frontier.position[1], frontier.position[2],
+      frontier.position[0], cave_entrance_[0] - cave_interior_margin_x_);
+    return;
+  }
+
+  // Reject frontiers near recently failed ones to avoid infinite retry loops
+  if (isFrontierRejected(frontier.position)) {
+    RCLCPP_WARN(this->get_logger(),
+      "Rejecting frontier [%.2f, %.2f, %.2f]: within blacklist radius %.2f m",
+      frontier.position[0], frontier.position[1], frontier.position[2],
+      frontier_blacklist_radius_);
+    return;
+  }
   
   // Only reset failure counter if this is a NEW frontier (position changed significantly)
   const double FRONTIER_CHANGE_THRESHOLD = 0.5; // meters
@@ -107,6 +149,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
     RCLCPP_DEBUG(this->get_logger(),
       "New frontier detected (change: %.2f m), resetting failure counter",
       frontier_change);
+    resetActiveFrontierTracking();
   }
   
   selected_frontier_ = frontier;
@@ -135,9 +178,7 @@ void ExplorationManager::planningResultCallback(const std_msgs::msg::Bool::Share
       RCLCPP_ERROR(this->get_logger(),
         "Frontier unreachable after %d attempts - rejecting and waiting for next",
         MAX_PLANNING_FAILURES);
-      selected_frontier_.distance = 0.0;  // Clear frontier
-      planning_failures_ = 0;
-      requestNewFrontier("planning failed repeatedly");
+      rejectActiveFrontier("planning failed repeatedly");
     }
   }
 }
@@ -256,15 +297,64 @@ void ExplorationManager::handleAutonomousExploration() {
   }
 
   const double FRONTIER_REACHED_THRESHOLD = 2.0; // meters
-  if (selected_frontier_.distance > 0.0 && selected_frontier_.distance <= FRONTIER_REACHED_THRESHOLD) {
+
+  // If we keep replanning/finishing without improving distance, abandon this frontier.
+  if (selected_frontier_.distance > 0.1) {
+    const rclcpp::Time now = this->get_clock()->now();
+
+    if (std::isinf(active_frontier_min_distance_)) {
+      active_frontier_min_distance_ = selected_frontier_.distance;
+      active_frontier_last_progress_time_ = now;
+    } else if ((active_frontier_min_distance_ - selected_frontier_.distance) >= frontier_progress_epsilon_m_) {
+      active_frontier_min_distance_ = selected_frontier_.distance;
+      active_frontier_last_progress_time_ = now;
+    } else {
+      const double stalled_for_s = (now - active_frontier_last_progress_time_).seconds();
+      if (stalled_for_s >= frontier_stall_timeout_s_) {
+        RCLCPP_WARN(this->get_logger(),
+          "Rejecting stalled frontier [%.2f, %.2f, %.2f]: no progress >= %.2f m for %.1f s",
+          selected_frontier_.position[0],
+          selected_frontier_.position[1],
+          selected_frontier_.position[2],
+          frontier_progress_epsilon_m_,
+          stalled_for_s);
+        rejectActiveFrontier("frontier progress stalled");
+        return;
+      }
+    }
+  }
+
+  // Frontier reached: distance <= threshold (including 0.0)
+  if (selected_frontier_.distance >= 0.0 && selected_frontier_.distance <= FRONTIER_REACHED_THRESHOLD) {
     RCLCPP_INFO(this->get_logger(),
       "Frontier reached (distance=%.2f m), requesting next frontier",
       selected_frontier_.distance);
-    selected_frontier_.distance = 0.0;
+    selected_frontier_.distance = -1.0;  // Mark as consumed to avoid re-triggering
     planning_failures_ = 0;
     last_sent_frontier_ = Eigen::Vector3d::Zero();  // Reset frontier tracking to force republish
+    resetActiveFrontierTracking();
     requestNewFrontier("frontier reached");
     return;
+  }
+
+  // If frontier is consumed (distance=-1.0) and we haven't received a response yet,
+  // reset the pending flag after a timeout so we can request again aggressively.
+  if (selected_frontier_.distance < -0.5) {  // Consumed frontier marker
+    double elapsed_since_request = (this->get_clock()->now() - last_frontier_request_time_).seconds();
+    const double REQUEST_TIMEOUT_S = 2.5;  // Allow frontier_exploration processing time before retry
+    
+    if (frontier_request_pending_ && elapsed_since_request >= REQUEST_TIMEOUT_S) {
+      RCLCPP_WARN(this->get_logger(),
+        "Frontier request timeout (%.1f s without response), resetting and requesting again",
+        elapsed_since_request);
+      frontier_request_pending_ = false;
+      requestNewFrontier("request timeout - retrying");
+      return;
+    } else if (!frontier_request_pending_ && elapsed_since_request < 2.0) {
+      // Keep requesting frequently until we get a response
+      requestNewFrontier("waiting for new frontier");
+      return;
+    }
   }
   
   if (selected_frontier_.distance > 0.1) {
@@ -330,6 +420,38 @@ void ExplorationManager::requestNewFrontier(const std::string& reason) {
   RCLCPP_INFO(this->get_logger(),
     "Requested new frontier (%s)",
     reason.c_str());
+}
+
+bool ExplorationManager::isFrontierRejected(const Eigen::Vector3d& frontier) const {
+  for (const auto& rejected : rejected_frontiers_) {
+    if ((frontier - rejected).norm() <= frontier_blacklist_radius_) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ExplorationManager::rejectActiveFrontier(const std::string& reason) {
+  if (selected_frontier_.distance > 0.0) {
+    rejected_frontiers_.push_back(selected_frontier_.position);
+    RCLCPP_WARN(this->get_logger(),
+      "Blacklisting frontier [%.2f, %.2f, %.2f] (%s)",
+      selected_frontier_.position[0],
+      selected_frontier_.position[1],
+      selected_frontier_.position[2],
+      reason.c_str());
+  }
+
+  selected_frontier_.distance = 0.0;
+  planning_failures_ = 0;
+  last_sent_frontier_ = Eigen::Vector3d::Zero();
+  resetActiveFrontierTracking();
+  requestNewFrontier(reason);
+}
+
+void ExplorationManager::resetActiveFrontierTracking() {
+  active_frontier_min_distance_ = std::numeric_limits<double>::infinity();
+  active_frontier_last_progress_time_ = this->get_clock()->now();
 }
 
 // ============================================================================
