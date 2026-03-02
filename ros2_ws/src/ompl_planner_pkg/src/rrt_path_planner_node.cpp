@@ -111,6 +111,8 @@ void RRTPathPlanner::targetFrontierCallback(const geometry_msgs::msg::PointStamp
     RCLCPP_WARN(this->get_logger(),
       "Rejecting frontier [%.2f, %.2f, %.2f] (Z=%.2f, cave_x_min=%.2f)",
       frontier[0], frontier[1], frontier[2], frontier[2], cave_entrance_[0]);
+    has_target_ = false;
+    publishPlanningResult(false);
     return;
   }
   
@@ -278,23 +280,27 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathToTarget(
   const Eigen::Vector3d& goal) {
   
   // Check if we have an OctoMap for collision checking
+  bool has_octomap = false;
   {
     std::lock_guard<std::mutex> lock(octree_mutex_);
-    if (!octree_) {
-      RCLCPP_WARN(this->get_logger(),
-        "No OctoMap available yet, using simple path");
-      return generateSimplePath(start, goal, step_size_);
-    }
+    has_octomap = static_cast<bool>(octree_);
+  }
+
+  if (!has_octomap) {
+    RCLCPP_WARN(this->get_logger(),
+      "No OctoMap available yet, using simple path");
+    return generateSimplePath(start, goal, step_size_);
   }
   
   // Use RRT* for path planning
   auto path = planPathWithRRTStar(start, goal);
   
-  // Fallback to simple path if RRT* fails
+  // Do not fallback to simple path when OctoMap is available.
+  // A straight-line fallback can be collision-invalid and masks true planning failures.
   if (path.empty()) {
     RCLCPP_WARN(this->get_logger(),
-      "RRT* planning failed, falling back to simple path");
-    return generateSimplePath(start, goal, step_size_);
+      "RRT* planning failed with OctoMap available; reporting failure");
+    return {};
   }
   
   return path;
