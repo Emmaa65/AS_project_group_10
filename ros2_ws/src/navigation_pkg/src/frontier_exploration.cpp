@@ -91,7 +91,7 @@ private:
     int max_cluster_size_ = 10000;
     // Cave entrance filter (only consider frontiers inside cave)
     double max_frontier_x_ = -330.0; // Cave extends only in X < -330
-    double min_frontier_z_ = -33.5; // Minimum safe height
+    //double min_frontier_z_ = -33.5; // Minimum safe height
     double safety_margin_ = 0.5; // Minimum distance from obstacles (meters) - drone is 0.2x0.2m
     bool frontier_request_pending_ = false;
     std::deque<geometry_msgs::msg::Point> frontier_goal_history_;
@@ -218,8 +218,8 @@ private:
                     if (ct.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
+                    // Filter: Only accept frontiers inside cave (X < -330)
+                    if (x < max_frontier_x_) {
                         pcl::PointXYZ p;
                         p.x = static_cast<float>(x);
                         p.y = static_cast<float>(y);
@@ -252,8 +252,8 @@ private:
                     if (ot.isNodeOccupied(node)) continue;//{ is_frontier = true; break; }
                 }
                 if (is_frontier) {
-                    // Filter: Only accept frontiers inside cave (X < -330) and above floor
-                    if (x < max_frontier_x_ && z >= min_frontier_z_) {
+                    // Filter: Only accept frontiers inside cave (X < -330)
+                    if (x < max_frontier_x_) {
                         pcl::PointXYZ p;
                         p.x = static_cast<float>(x);
                         p.y = static_cast<float>(y);

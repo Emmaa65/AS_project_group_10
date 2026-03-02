@@ -23,6 +23,7 @@
 #include <Eigen/Dense>
 #include <memory>
 #include <string>
+#include <limits>
 #include <vector>
 
 #include "ompl_planner_pkg/exploration_types.hpp"
@@ -80,6 +81,13 @@ private:
   double frontier_update_rate_ = 2.0; // Hz
   double min_frontier_distance_ = 0.5; // Don't go to frontier closer than this
   double max_frontier_distance_ = 50.0; // Don't go to frontier further than this
+  double cave_interior_margin_x_ = 1.0; // Require frontier to be this far inside cave (x < cave_entrance_x - margin)
+  double frontier_blacklist_radius_ = 2.0; // Reject new frontiers near recently failed ones
+  double frontier_stall_timeout_s_ = 20.0; // Reject active frontier if no progress for this long
+  double frontier_progress_epsilon_m_ = 0.3; // Minimum progress to reset stall timer
+  std::vector<Eigen::Vector3d> rejected_frontiers_;
+  double active_frontier_min_distance_ = std::numeric_limits<double>::infinity();
+  rclcpp::Time active_frontier_last_progress_time_;
   
   // Timing
   rclcpp::Time last_frontier_selection_;
@@ -114,6 +122,9 @@ private:
    */
   void publishTargetFrontier(const FrontierPoint& frontier);
   void requestNewFrontier(const std::string& reason);
+  bool isFrontierRejected(const Eigen::Vector3d& frontier) const;
+  void rejectActiveFrontier(const std::string& reason);
+  void resetActiveFrontierTracking();
   
   // ========================================================================
   // Helper Methods

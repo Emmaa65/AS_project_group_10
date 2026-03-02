@@ -13,7 +13,11 @@ exploration_manager:
     
     # Distance constraints for frontier selection [meters]
     min_frontier_distance: 0.0
-    max_frontier_distance: 50.0
+    max_frontier_distance: 200.0  # Increased from 50m to allow distant frontier exploration
+    cave_interior_margin_x: 1.0   # Require frontier x < cave_entrance_x - margin
+    frontier_blacklist_radius: 15.0  # Reject new frontiers near failed/stalled goals
+    frontier_stall_timeout_s: 20.0  # Abandon current frontier if no progress for this long
+    frontier_progress_epsilon_m: 0.3  # Minimum distance improvement that counts as progress
     
     # Logging level
     log_level: "INFO"
@@ -38,7 +42,7 @@ rrt_path_planner:
     cave_entrance_x: -330.0      # Cave entrance X position (must match exploration_manager!)
     cave_entrance_y: 10.0
     cave_entrance_z: 20.0
-    min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
+    #min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
     
     # Collision checking parameters
     collision_check_resolution: 0.3  # meters (resolution for checking collision-free path)
