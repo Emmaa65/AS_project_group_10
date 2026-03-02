@@ -437,27 +437,37 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
 bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
   const auto *pos = state->as<ompl::base::RealVectorStateSpace::StateType>();
   
-  // ENTRANCE BLOCKING: Apply synthetic entrance wall constraint.
-  // Wall blocks escape attempts but does NOT affect cave exploration or saved OctoMap.
-  // - Position: X ∈ [-325, -322] (3m thick disc, 5-8m outside cave entrance at X=-330)
-  // - Shape: 10m radius disc in Y-Z plane (centered at Y=10, Z=20)
-  // - Effect: Prevents RRT* from planning paths that pass through this zone
-  // - Benefit: Saved map is clean (no synthetic voxels), but planning is still constrained
+  // ENTRANCE BLOCKING: Apply synthetic entrance disc barrier.
+  // This acts as a SOLID OBSTACLE - RRT* cannot plan paths through it.
+  // - Position: X ∈ [-328, -322] (6m thick disc, 2-8m outside cave entrance at X=-330)
+  // - Shape: 20m radius disc in Y-Z plane (centered at Y=10, Z=20) - DOUBLED to cover full opening
+  // - Effect: Any state within or near (robot_radius) this disc is invalid
+  // - This prevents paths from going THROUGH the entrance, not just goals IN the entrance
   if (entrance_wall_built_) {
-    const double entrance_x = cave_entrance_[0];  // -330
+    const double entrance_x = cave_entrance_[0];  // -330 (cave entrance)
     const double entrance_y = cave_entrance_[1];  // 10
     const double entrance_z = cave_entrance_[2];  // 20
-    const double wall_x_start = entrance_x + 5.0;    // -325 (5m outside entrance)
-    const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance)
-    const double wall_disc_radius = 10.0;  // 10m radius in Y-Z plane
+    const double wall_x_start = entrance_x + 2.0;    // -328 (2m outside entrance, wall start - closer to cave)
+    const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance, wall end)
+    const double wall_disc_radius = 20.0;  // 20m radius in Y-Z plane - DOUBLED from 10m
     
-    // Check if position is within wall zone
-    if ((*pos)[0] >= wall_x_start && (*pos)[0] <= wall_x_end) {
-      double dist_yz = std::sqrt(((*pos)[1] - entrance_y)*((*pos)[1] - entrance_y) + 
-                                 ((*pos)[2] - entrance_z)*((*pos)[2] - entrance_z));
-      if (dist_yz <= wall_disc_radius) {
-        return false;  // Inside wall zone, invalid
+    // Calculate Y-Z distance from wall center
+    double dist_yz = std::sqrt(((*pos)[1] - entrance_y)*((*pos)[1] - entrance_y) + 
+                               ((*pos)[2] - entrance_z)*((*pos)[2] - entrance_z));
+    
+    // Block: Position within entrance disc and within Y-Z disc radius
+    // Include robot_radius_ as safety margin (treat disc as solid obstacle with thickness)
+    if ((*pos)[0] >= (wall_x_start - robot_radius_) && 
+        (*pos)[0] <= (wall_x_end + robot_radius_) && 
+        dist_yz <= (wall_disc_radius + robot_radius_)) {
+      // Log occasional blocking to verify wall is active (throttled to avoid spam)
+      static int block_count = 0;
+      if (++block_count % 100 == 1) {
+        RCLCPP_INFO(this->get_logger(),
+          "Entrance disc BLOCKED state at [%.2f, %.2f, %.2f] (count=%d)",
+          (*pos)[0], (*pos)[1], (*pos)[2], block_count);
       }
+      return false;  // Inside entrance disc barrier, invalid
     }
   }  // End entrance_wall_built_ check
   
@@ -741,10 +751,10 @@ void RRTPathPlanner::publishEntranceWallVisualization() {
   const double entrance_x = cave_entrance_[0];  // -330
   const double entrance_y = cave_entrance_[1];  // 10
   const double entrance_z = cave_entrance_[2];  // 20
-  const double wall_x_start = entrance_x + 5.0;    // -325 (5m outside entrance)
+  const double wall_x_start = entrance_x + 2.0;    // -328 (2m outside entrance - closer)
   const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance)
-  const double wall_disc_radius = 10.0;  // 10m radius in Y-Z plane
-  const double marker_spacing = 1.5;  // 1.5m between markers (denser visualization)
+  const double wall_disc_radius = 20.0;  // 20m radius in Y-Z plane - DOUBLED
+  const double marker_spacing = 2.0;  // 2m between markers (adjusted for larger disc)
   
   int marker_id = 0;
   
