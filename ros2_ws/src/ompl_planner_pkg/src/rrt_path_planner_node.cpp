@@ -29,8 +29,8 @@ RRTPathPlanner::RRTPathPlanner()
   this->declare_parameter("cave_entrance_x", -330.0);
   this->declare_parameter("cave_entrance_y", 10.0);
   this->declare_parameter("cave_entrance_z", 20.0);
-  this->declare_parameter("collision_check_resolution", 0.3);
-  this->declare_parameter("robot_radius", 0.3);  // Drone is 0.2x0.2m, add small safety margin
+  this->declare_parameter("collision_check_resolution", 1.0);
+  this->declare_parameter("robot_radius", 0.25);  // Drone is 0.2x0.2m, reduced for better collision clearance
   
   max_planning_time_ = this->get_parameter("max_planning_time").as_double();
   step_size_ = this->get_parameter("step_size").as_double();
@@ -71,6 +71,9 @@ RRTPathPlanner::RRTPathPlanner()
   
   pub_plan_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
     "planned_path_markers", 10);
+  
+  pub_entrance_wall_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "entrance_wall_markers", 10);
   
   pub_planning_result_ = this->create_publisher<std_msgs::msg::Bool>(
     "planning_result", 10);
@@ -143,10 +146,6 @@ void RRTPathPlanner::octomapCallback(const octomap_msgs::msg::Octomap::SharedPtr
   // Update octree (thread-safe)
   std::lock_guard<std::mutex> lock(octree_mutex_);
   octree_.reset(tree);
-  
-  RCLCPP_DEBUG(this->get_logger(),
-    "OctoMap updated: resolution=%.3f, tree_depth=%d",
-    octree_->getResolution(), octree_->getTreeDepth());
 }
 
 void RRTPathPlanner::stateCallback(const std_msgs::msg::String::SharedPtr msg) {
@@ -154,6 +153,15 @@ void RRTPathPlanner::stateCallback(const std_msgs::msg::String::SharedPtr msg) {
   
   RCLCPP_INFO(this->get_logger(),
     "RRT* stateCallback: state=%s", exploration_state_.c_str());
+  
+  // Activate entrance wall AT waiting state (while drone is stationary at entrance)
+  // Wall is positioned BEHIND the drone (deeper in cave) to prevent escape without blocking entry
+  if (exploration_state_ == "WAITING_AT_ENTRANCE" && !entrance_wall_built_) {
+    RCLCPP_WARN(this->get_logger(),
+      "[RRT ENTRANCE WALL] Building wall BEHIND drone at entrance (blocks escape, not entry)");
+    entrance_wall_built_ = true;
+    publishEntranceWallVisualization();
+  }
 }
 
 void RRTPathPlanner::planPath() {
@@ -429,6 +437,30 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
 bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
   const auto *pos = state->as<ompl::base::RealVectorStateSpace::StateType>();
   
+  // ENTRANCE BLOCKING: Apply synthetic entrance wall constraint.
+  // Wall blocks escape attempts but does NOT affect cave exploration or saved OctoMap.
+  // - Position: X ∈ [-325, -322] (3m thick disc, 5-8m outside cave entrance at X=-330)
+  // - Shape: 10m radius disc in Y-Z plane (centered at Y=10, Z=20)
+  // - Effect: Prevents RRT* from planning paths that pass through this zone
+  // - Benefit: Saved map is clean (no synthetic voxels), but planning is still constrained
+  if (entrance_wall_built_) {
+    const double entrance_x = cave_entrance_[0];  // -330
+    const double entrance_y = cave_entrance_[1];  // 10
+    const double entrance_z = cave_entrance_[2];  // 20
+    const double wall_x_start = entrance_x + 5.0;    // -325 (5m outside entrance)
+    const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance)
+    const double wall_disc_radius = 10.0;  // 10m radius in Y-Z plane
+    
+    // Check if position is within wall zone
+    if ((*pos)[0] >= wall_x_start && (*pos)[0] <= wall_x_end) {
+      double dist_yz = std::sqrt(((*pos)[1] - entrance_y)*((*pos)[1] - entrance_y) + 
+                                 ((*pos)[2] - entrance_z)*((*pos)[2] - entrance_z));
+      if (dist_yz <= wall_disc_radius) {
+        return false;  // Inside wall zone, invalid
+      }
+    }
+  }  // End entrance_wall_built_ check
+  
   octomap::point3d query((*pos)[0], (*pos)[1], (*pos)[2]);
   
   std::lock_guard<std::mutex> lock(octree_mutex_);
@@ -479,7 +511,7 @@ bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
 std::vector<Eigen::Vector3d> RRTPathPlanner::generateSimplePath(
   const Eigen::Vector3d& start,
   const Eigen::Vector3d& goal,
-  double step_size) {
+  double /* step_size */) {
   
   std::vector<Eigen::Vector3d> path;
   
@@ -698,6 +730,71 @@ void RRTPathPlanner::publishPlanningResult(bool success) {
   
   RCLCPP_DEBUG(this->get_logger(),
     "Planning result: %s", success ? "SUCCESS" : "FAILURE");
+}
+
+void RRTPathPlanner::publishEntranceWallVisualization() {
+  // Create white sphere markers showing the entrance wall zone
+  // This helps verify the wall constraint is active without polluting the saved OctoMap
+  
+  visualization_msgs::msg::MarkerArray markers;
+  
+  const double entrance_x = cave_entrance_[0];  // -330
+  const double entrance_y = cave_entrance_[1];  // 10
+  const double entrance_z = cave_entrance_[2];  // 20
+  const double wall_x_start = entrance_x + 5.0;    // -325 (5m outside entrance)
+  const double wall_x_end = entrance_x + 8.0;      // -322 (8m outside entrance)
+  const double wall_disc_radius = 10.0;  // 10m radius in Y-Z plane
+  const double marker_spacing = 1.5;  // 1.5m between markers (denser visualization)
+  
+  int marker_id = 0;
+  
+  RCLCPP_WARN(this->get_logger(),
+    "[RRT ENTRANCE WALL] Creating visualization: X∈[%.1f, %.1f], YZ-radius=%.1fm",
+    wall_x_start, wall_x_end, wall_disc_radius);
+  
+  // Sample points in the disc volume and create sphere markers
+  for (double x = wall_x_start; x <= wall_x_end; x += marker_spacing) {
+    for (double y = entrance_y - wall_disc_radius; y <= entrance_y + wall_disc_radius; y += marker_spacing) {
+      for (double z = entrance_z - wall_disc_radius; z <= entrance_z + wall_disc_radius; z += marker_spacing) {
+        // Check if point is within disc radius
+        double dist_yz = std::sqrt((y - entrance_y)*(y - entrance_y) + (z - entrance_z)*(z - entrance_z));
+        if (dist_yz <= wall_disc_radius) {
+          visualization_msgs::msg::Marker marker;
+          marker.header.frame_id = "world";
+          marker.header.stamp = this->get_clock()->now();
+          marker.ns = "entrance_wall";
+          marker.id = marker_id++;
+          marker.type = visualization_msgs::msg::Marker::SPHERE;
+          marker.action = visualization_msgs::msg::Marker::ADD;
+          
+          marker.pose.position.x = x;
+          marker.pose.position.y = y;
+          marker.pose.position.z = z;
+          marker.pose.orientation.w = 1.0;
+          
+          marker.scale.x = 2.0;  // 2m diameter spheres (more visible)
+          marker.scale.y = 2.0;
+          marker.scale.z = 2.0;
+          
+          // Bright red color with high opacity
+          marker.color.r = 1.0;
+          marker.color.g = 0.0;
+          marker.color.b = 0.0;
+          marker.color.a = 0.8;  // Mostly opaque
+          
+          marker.lifetime = rclcpp::Duration::from_seconds(0);  // Persist indefinitely
+          
+          markers.markers.push_back(marker);
+        }
+      }
+    }
+  }
+  
+  pub_entrance_wall_markers_->publish(markers);
+  
+  RCLCPP_WARN(this->get_logger(),
+    "[RRT ENTRANCE WALL] Published %zu white markers for visualization in RViz (topic: entrance_wall_markers)",
+    markers.markers.size());
 }
 
 // ============================================================================

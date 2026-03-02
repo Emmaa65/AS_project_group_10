@@ -13,7 +13,7 @@ exploration_manager:
     
     # Distance constraints for frontier selection [meters]
     min_frontier_distance: 0.0
-    max_frontier_distance: 200.0  # Increased from 50m to allow distant frontier exploration
+    max_frontier_distance: 300.0  # Increased from 200m to allow backtracking to major cave clusters after exploration
     cave_interior_margin_x: 1.0   # Require frontier x < cave_entrance_x - margin
     frontier_blacklist_radius: 15.0  # Reject new frontiers near failed/stalled goals
     frontier_stall_timeout_s: 20.0  # Abandon current frontier if no progress for this long
@@ -45,8 +45,8 @@ rrt_path_planner:
     #min_frontier_z: -33.5        # Minimum safe height (negative to accept low points)
     
     # Collision checking parameters
-    collision_check_resolution: 0.3  # meters (resolution for checking collision-free path)
-    robot_radius: 0.3                # meters (safety sphere around drone center; drone is 0.2x0.2m)
+    collision_check_resolution: 1.0  # meters (increased from 0.3 to match 2m OctoMap scale and avoid false collisions at start)
+    robot_radius: 0.25               # meters (reduced from 0.3 to 0.25 for safety margin; drone is 0.2x0.2m)
     
     # Logging level
     log_level: "INFO"

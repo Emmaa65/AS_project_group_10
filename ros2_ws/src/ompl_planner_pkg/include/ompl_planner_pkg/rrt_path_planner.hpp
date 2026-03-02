@@ -47,6 +47,7 @@ private:
   
   rclcpp::Publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr pub_trajectory_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_plan_markers_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_entrance_wall_markers_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_planning_result_;
   
   rclcpp::TimerBase::SharedPtr planning_timer_;
@@ -83,6 +84,7 @@ private:
   // OctoMap for collision checking
   std::shared_ptr<octomap::OcTree> octree_;
   std::mutex octree_mutex_;
+  bool entrance_wall_built_ = false;  // Flag to build entrance wall only once at startup
   
   // Callbacks
   void targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
@@ -95,6 +97,8 @@ private:
   std::vector<Eigen::Vector3d> planPathToTarget(
     const Eigen::Vector3d& start, 
     const Eigen::Vector3d& goal);
+  
+  void publishEntranceWallVisualization();
   
   std::vector<Eigen::Vector3d> planPathWithRRTStar(
     const Eigen::Vector3d& start,
