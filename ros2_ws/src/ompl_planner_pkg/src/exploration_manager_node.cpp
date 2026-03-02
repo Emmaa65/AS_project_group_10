@@ -569,7 +569,7 @@ void ExplorationManager::publishDebugMarkers() {
     marker.pose.position.z = selected_frontier_.position[2];
     marker.scale.x = marker.scale.y = marker.scale.z = 1.0;
     marker.color.r = 1.0f;
-    marker.color.g = 1.0f;
+    marker.color.g = 0.0f;
     marker.color.b = 0.0f;
     marker.color.a = 0.7f;
     markers->markers.push_back(marker);
