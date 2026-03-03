@@ -84,9 +84,10 @@ private:
   double max_frontier_distance_ = 50.0; // Don't go to frontier further than this
   double cave_interior_margin_x_ = 1.0; // Require frontier to be this far inside cave (x < cave_entrance_x - margin)
   double frontier_blacklist_radius_ = 2.0; // Reject new frontiers near recently failed ones
+  double frontier_blacklist_timeout_s_ = 60.0; // Expire blacklist entries after this time
   double frontier_stall_timeout_s_ = 20.0; // Reject active frontier if no progress for this long
   double frontier_progress_epsilon_m_ = 0.3; // Minimum progress to reset stall timer
-  std::vector<Eigen::Vector3d> rejected_frontiers_;
+  std::vector<std::pair<Eigen::Vector3d, rclcpp::Time>> rejected_frontiers_; // [position, timestamp]
   double active_frontier_min_distance_ = std::numeric_limits<double>::infinity();
   rclcpp::Time active_frontier_last_progress_time_;
   
