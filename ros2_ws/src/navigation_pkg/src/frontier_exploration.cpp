@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <deque>
+#include <limits>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -347,181 +348,177 @@ private:
 
     // Find best cluster for exploration: prefer clusters deeper in cave (smaller X)
     // with bonus for larger clusters to avoid tiny outliers
-    size_t findBestCluster(const std::vector<pcl::PointIndices> &clusters, 
-                           const PointCloudPtr &cloud) {
+    size_t findBestCluster(const std::vector<pcl::PointIndices> &clusters,
+                       const PointCloudPtr &cloud) {
         if (clusters.empty()) return 0;
-        
-        // Get current drone position
+
         Eigen::Vector3d drone_pos;
         {
             std::lock_guard<std::mutex> lock(drone_state_mutex_);
-            drone_pos.x() = current_pose_.position.x;
-            drone_pos.y() = current_pose_.position.y;
-            drone_pos.z() = current_pose_.position.z;
+            drone_pos = {current_pose_.position.x,
+                         current_pose_.position.y,
+                         current_pose_.position.z};
         }
-        
-        size_t best_idx = 0;
-        double best_score = -std::numeric_limits<double>::infinity();
-        const double min_distance = 5.0;  // Minimum distance from drone (meters) - reduced for deep exploration
-        const double max_frontier_distance = 300.0;  // Increased from 200m to allow backtracking to major clusters
-        
-        // First pass: try to find clusters far enough from drone
-        bool found_distant_cluster = false;
-        const double entrance_x = -330.0;  // Cave entrance X coordinate
-        
+
+        // ── 1. Rohdaten sammeln ──────────────────────────────────────────────────
+        struct ClusterFeatures {
+            size_t  idx;
+            Eigen::Vector3d centroid;
+            double  distance;      // drone → centroid
+            double  size;          // number of frontier points
+            double  depth;         // -centroid.x()  (höher = tiefer in Höhle)
+            double  z_depth;       // -centroid.z()  (höher = weiter unten)
+            double  continuity;    // cos-Winkel [-1, +1]
+            double  entrance_dist; // Abstand zum Eingang
+            bool    valid;
+        };
+
+        const double MIN_DIST          = 5.0;
+        const double ENTRANCE_X        = -330.0;
+        const double ENTRANCE_Y        = 10.0;
+        const double ENTRANCE_Z        = 20.0;
+        const double ENTRANCE_DISC_R   = 12.0;
+
+        std::vector<ClusterFeatures> feats;
+        feats.reserve(clusters.size());
+
+        // Continuity-Richtung einmal berechnen
+        Eigen::Vector3d continuity_dir = Eigen::Vector3d::Zero();
+        bool has_continuity = false;
+        if (accepted_frontier_positions_.size() >= 2) {
+            continuity_dir =
+                accepted_frontier_positions_.back() -
+                accepted_frontier_positions_[accepted_frontier_positions_.size() - 2];
+            has_continuity = continuity_dir.norm() > 0.1;
+        } else if (accepted_frontier_positions_.size() == 1) {
+            continuity_dir =
+                drone_pos - accepted_frontier_positions_.back();
+            has_continuity = continuity_dir.norm() > 0.1;
+        }
+        if (has_continuity) continuity_dir.normalize();
+
         for (size_t i = 0; i < clusters.size(); ++i) {
-            // Compute cluster centroid
-            Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
-            
-            // Check distance to avoid getting stuck at same position
-            double distance = (centroid - drone_pos).norm();
-            if (distance < min_distance) {
-                RCLCPP_INFO(this->get_logger(),
-                    "Cluster %zu: X=%.2f, size=%zu, distance=%.2f - SKIPPED (too close to drone)",
-                    i, centroid.x(), clusters[i].indices.size(), distance);
-                continue;
+            ClusterFeatures f;
+            f.idx      = i;
+            f.centroid = computeClusterCentroid(cloud, clusters[i]);
+            f.distance = (f.centroid - drone_pos).norm();
+            f.size     = static_cast<double>(clusters[i].indices.size());
+            f.depth    = -f.centroid.x();
+            f.z_depth  = -f.centroid.z();
+            f.valid    = true;
+
+            // Hard-Filter
+            if (f.distance < MIN_DIST) {
+                RCLCPP_INFO(get_logger(), "Cluster %zu SKIP: too close (%.2f m)", i, f.distance);
+                f.valid = false;
             }
-            
-            // CRITICAL: Check if position is safe (safety_margin from all obstacles)
-            if (!isSafePosition(centroid)) {
-                RCLCPP_INFO(this->get_logger(),
-                    "Cluster %zu: X=%.2f, size=%zu - SKIPPED (too close to obstacles, <%.1fm safety margin)",
-                    i, centroid.x(), clusters[i].indices.size(), safety_margin_);
-                continue;
+            if (!isSafePosition(f.centroid)) {
+                RCLCPP_INFO(get_logger(), "Cluster %zu SKIP: unsafe position", i);
+                f.valid = false;
+            }
+            if ((f.centroid - last_published_frontier_).norm() < 3.0) {
+                RCLCPP_INFO(get_logger(), "Cluster %zu SKIP: near last published", i);
+                f.valid = false;
             }
 
-            // AVOID RE-SUGGESTING: Only skip if cluster is within 3m of last published.
-            // Reduced from 5m to allow closer alternatives when nearby frontiers fail.
-            double dist_to_last_published = (centroid - last_published_frontier_).norm();
-            if (dist_to_last_published < 3.0) {  // Skip if within 3m of last published (same cluster with noise)
-                RCLCPP_INFO(this->get_logger(),
-                    "Cluster %zu: X=%.2f, size=%zu - SKIPPED (within 3m of last published frontier, dist=%.2f m)",
-                    i, centroid.x(), clusters[i].indices.size(), dist_to_last_published);
-                continue;
+            // Continuity [-1, +1]
+            if (has_continuity) {
+                Eigen::Vector3d to_cluster = f.centroid - accepted_frontier_positions_.back();
+                f.continuity = (to_cluster.norm() > 0.1)
+                    ? continuity_dir.dot(to_cluster.normalized())
+                    : 0.0;
+            } else {
+                f.continuity = 0.0;
             }
-            
-            found_distant_cluster = true;
-            
-            double size_score = static_cast<double>(clusters[i].indices.size()) * 5.0; // Bonus for larger clusters
-            double depth_bonus = -centroid.x() * 0.4; // Prefer deeper clusters in X direction
-            double z_depth_bonus = -centroid.z() * 0.15; // Prefer downward exploration (increased from 0.1 for stronger Z preference)
-            double distance_penalty = distance * 3.5; // Penalize distant frontiers
-            
-            // CONTINUITY SCORING: Prefer clusters that continue the last explored direction.
-            // If we have accepted frontier history, compute direction vector and bonus clusters along that path.
-            // This ensures we explore forward along the cave, not backwards or perpendicular.
-            double continuity_bonus = 0.0;
-            if (accepted_frontier_positions_.size() >= 1) {
-                // For single frontier: estimate direction from drone position to last accepted frontier
-                // For 2+ frontiers: use direction from N-2 to N-1 (last two accepted frontiers)
-                Eigen::Vector3d direction;
-                if (accepted_frontier_positions_.size() >= 2) {
-                    // Direction: from older frontier to newer frontier (forward along travel path)
-                    direction = 
-                        accepted_frontier_positions_.back() - accepted_frontier_positions_[accepted_frontier_positions_.size() - 2];
-                } else {
-                    // With only 1 frontier, use direction from that frontier to drone (reverse to see forward intent)
-                    // This captures where we're heading FROM that explored frontier
-                    direction = Eigen::Vector3d(current_pose_.position.x, current_pose_.position.y, current_pose_.position.z) -
-                        accepted_frontier_positions_.back();
-                }
-                const double direction_norm = direction.norm();
-                if (direction_norm > 0.1) {
-                    direction /= direction_norm;
-                
-                    // Vector from last accepted frontier to this cluster
-                    Eigen::Vector3d to_cluster = centroid - accepted_frontier_positions_.back();
-                    const double to_cluster_norm = to_cluster.norm();
-                    if (to_cluster_norm > 0.1) {
-                        to_cluster /= to_cluster_norm;
-                        // Dot product: +1 = same direction, 0 = perpendicular, -1 = opposite
-                        double alignment = direction.dot(to_cluster);
-                    
-                        // SIGNED CONTINUITY: reward forward-aligned clusters, penalize backward ones
-                        // alignment +1.0 (forward) -> bonus +30.0
-                        // alignment  0.0 (perpendicular) -> bonus 0.0
-                        // alignment -1.0 (backward/reversal) -> penalty -30.0
-                        continuity_bonus = alignment * 30.0;
 
-                        RCLCPP_INFO(this->get_logger(),
-                            "Continuity debug: history=%zu, dir_norm=%.2f, to_cluster_norm=%.2f, alignment=%.3f, signed_bonus=%.2f",
-                            accepted_frontier_positions_.size(), direction_norm, to_cluster_norm, alignment, continuity_bonus);
-                    }
-                } else {
-                    RCLCPP_INFO(this->get_logger(),
-                        "Continuity debug: history=%zu but direction norm too small (%.3f), bonus stays 0.0",
-                        accepted_frontier_positions_.size(), direction_norm);
-                }
+            // Eingangs-Abstand (Disc in YZ-Ebene, Strafe wenn nahe am Eingang)
+            double dist_yz = std::hypot(f.centroid.y() - ENTRANCE_Y,
+                                        f.centroid.z() - ENTRANCE_Z);
+            f.entrance_dist = (f.centroid.x() > ENTRANCE_X + 2.0 && dist_yz < ENTRANCE_DISC_R)
+                              ? 0.0   // nah am Eingang → schlechtester Wert
+                              : 1.0;  // tief in Höhle  → bester Wert
+
+            feats.push_back(f);
+        }
+
+        // Prüfe ob valide Cluster vorhanden
+        bool any_valid = std::any_of(feats.begin(), feats.end(), [](const auto &f){ return f.valid; });
+        if (!any_valid) {
+            RCLCPP_WARN(get_logger(), "No valid clusters – fallback: deepest cluster");
+            // Fallback: tiefsten Cluster nehmen (kein Hard-Filter)
+            return std::max_element(feats.begin(), feats.end(),
+                [](const auto &a, const auto &b){ return a.depth < b.depth; }) - feats.begin();
+        }
+
+        // ── 2. Min/Max über valide Cluster für Normierung ───────────────────────
+        auto valid_range = [&](auto getter) -> std::pair<double,double> {
+            double lo =  std::numeric_limits<double>::max();
+            double hi = -std::numeric_limits<double>::max();
+            for (const auto &f : feats) {
+                if (!f.valid) continue;
+                double v = getter(f);
+                lo = std::min(lo, v);
+                hi = std::max(hi, v);
             }
-            
-            // ENTRANCE BLOCKING: Hard reject any frontier trying to exit the cave.
-            // Entrance at X=-330, Y=10, Z=20. Block anything too close to entrance exit.
-            // Check all three dimensions to prevent escape attempts.
-            const double entrance_y = 10.0;
-            const double entrance_z = 20.0;
-            
-            // Soft entrance disc check: matching the voxel wall geometry (10m radius Y-Z, 3m thick X)
-            // Frontiers near the entrance should be deprioritized via continuity+depth scoring.
-            // Hard boundaries are unnecessary since the physical voxel wall prevents actual escape.
-            double entrance_penalty = 0.0;
-            double dist_yz = std::sqrt((centroid.y() - entrance_y)*(centroid.y() - entrance_y) + 
-                                      (centroid.z() - entrance_z)*(centroid.z() - entrance_z));
-            
-            // Mild penalty for clusters just outside entrance disc (X > -330+2, within 12m disc)
-            if (centroid.x() > entrance_x + 2.0 && dist_yz < 12.0) {
-                entrance_penalty = 10.0; // Mild penalty to discourage entrance-adjacent clusters
-            }
-            double score = size_score + depth_bonus + z_depth_bonus + continuity_bonus - distance_penalty - entrance_penalty; // Combine factors
-            RCLCPP_INFO(this->get_logger(),
-                "Cluster %zu: X=%.2f, Z=%.2f, size=%zu, dist=%.2f, size_score=%.1f, depth_bonus=%.1f, z_depth_bonus=%.1f, continuity_bonus=%.1f, dist_penalty=%.1f, entrance_penalty=%.1f, total=%.1f",
-                i, centroid.x(), centroid.z(), clusters[i].indices.size(), distance,
-                size_score, depth_bonus, z_depth_bonus, continuity_bonus, distance_penalty, entrance_penalty, score);
+            return {lo, hi};
+        };
+
+        // Normierungshilfe: gibt [0,1] zurück; 0 wenn Range trivial
+        auto norm = [](double val, double lo, double hi) -> double {
+            return (hi - lo) > 1e-6 ? (val - lo) / (hi - lo) : 0.5;
+        };
+
+        auto [size_lo,     size_hi    ] = valid_range([](const auto &f){ return f.size;     });
+        auto [dist_lo,     dist_hi    ] = valid_range([](const auto &f){ return f.distance; });
+        auto [depth_lo,    depth_hi   ] = valid_range([](const auto &f){ return f.depth;    });
+        auto [zdepth_lo,   zdepth_hi  ] = valid_range([](const auto &f){ return f.z_depth;  });
+        // continuity ist schon in [-1,+1] → auf [0,1] schieben: (c+1)/2
+        // entrance_dist ist binär {0,1}
+
+        // ── 3. Gewichte ─────────────────────────────────────────────────────────
+        // Summe = 1.0  →  Score ∈ [0, 1]
+        const double W_SIZE        = 0.10;  // Größe des Clusters
+        const double W_DEPTH       = 0.10;  // Tiefe in X-Richtung
+        const double W_Z_DEPTH     = 0.10;  // Vertikale Tiefe
+        const double W_DISTANCE    = 0.30;  // Nähe (invertiert)
+        const double W_CONTINUITY  = 0.15;  // Richtungstreue
+        const double W_ENTRANCE    = 0.25;  // Eingangs-Penalty
+        // Σ = 1.00
+
+        // ── 4. Scoring ──────────────────────────────────────────────────────────
+        size_t best_idx   = 0;
+        double best_score = -1.0;
+
+        for (auto &f : feats) {
+            if (!f.valid) continue;
+
+            // Größe: log-skaliert damit riesige Cluster nicht dominieren
+            double s_size      = norm(std::log1p(f.size), std::log1p(size_lo), std::log1p(size_hi));
+            double s_depth     = norm(f.depth,    depth_lo,   depth_hi);
+            double s_z_depth   = norm(f.z_depth,  zdepth_lo,  zdepth_hi);
+            double s_distance  = 1.0 - norm(f.distance, dist_lo, dist_hi); // kleiner Abstand = besser
+            double s_continuity= (f.continuity + 1.0) / 2.0;               // [-1,1] → [0,1]
+            double s_entrance  = f.entrance_dist;                           // binär {0,1}
+
+            double score =
+                W_SIZE       * s_size      +
+                W_DEPTH      * s_depth     +
+                W_Z_DEPTH    * s_z_depth   +
+                W_DISTANCE   * s_distance  +
+                W_CONTINUITY * s_continuity+
+                W_ENTRANCE   * s_entrance;
+
+            RCLCPP_INFO(get_logger(),
+                "Cluster %zu | size=%.2f depth=%.2f z=%.2f dist=%.2f cont=%.2f entr=%.2f → score=%.4f",
+                f.idx, s_size, s_depth, s_z_depth, s_distance, s_continuity, s_entrance, score);
 
             if (score > best_score) {
                 best_score = score;
-                best_idx = i;
+                best_idx   = f.idx;
             }
         }
-        
-        // Fallback: if all clusters too close, choose deepest one anyway
-        if (!found_distant_cluster) {
-            RCLCPP_WARN(this->get_logger(), 
-                "All %zu clusters <%.1fm away from drone at (%.2f, %.2f, %.2f), selecting deepest as last resort", 
-                clusters.size(), min_distance, drone_pos.x(), drone_pos.y(), drone_pos.z());
-            best_score = -std::numeric_limits<double>::infinity();
-            
-            for (size_t i = 0; i < clusters.size(); ++i) {
-                Eigen::Vector3d centroid = computeClusterCentroid(cloud, clusters[i]);
-                double distance = (centroid - drone_pos).norm();
-                
-                // In emergency fallback: ignore entrance penalty, just find deepest
-                double depth_score = -centroid.x();
-                double size_bonus = std::log(static_cast<double>(clusters[i].indices.size()) + 1.0) * 5.0;
-                double score = depth_score + size_bonus;
-                
-                RCLCPP_WARN(this->get_logger(),
-                    "Fallback cluster %zu: X=%.2f, size=%zu, dist=%.2f, score=%.1f",
-                    i, centroid.x(), clusters[i].indices.size(), distance, score);
-                
-                if (score > best_score) {
-                    best_score = score;
-                    best_idx = i;
-                }
-            }
-            
-            // If still no valid cluster found (shouldn't happen), use first cluster
-            if (best_score == -std::numeric_limits<double>::infinity()) {
-                RCLCPP_ERROR(this->get_logger(), "No valid cluster found, using cluster 0 as emergency fallback");
-                best_idx = 0;
-            }
-        }
-        
-        // Log selected cluster
-        Eigen::Vector3d selected_centroid = computeClusterCentroid(cloud, clusters[best_idx]);
-        RCLCPP_INFO(this->get_logger(), 
-            ">>> SELECTED cluster %zu at X=%.2f (score=%.1f)", 
-            best_idx, selected_centroid.x(), best_score);
-        
+
+        RCLCPP_INFO(get_logger(), ">>> SELECTED cluster %zu (score=%.4f)", best_idx, best_score);
         return best_idx;
     }
 
