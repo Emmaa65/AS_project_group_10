@@ -227,7 +227,8 @@ void ExplorationManager::controlLoop() {
       break;
   }
   
-  publishDebugMarkers();
+  // Disabled: exploration_markers topic caused duplicate frontier visualization
+  // publishDebugMarkers();
 }
 
 // ============================================================================
