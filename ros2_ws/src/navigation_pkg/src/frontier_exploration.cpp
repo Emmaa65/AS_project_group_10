@@ -478,10 +478,9 @@ private:
         // ── 3. Gewichte ─────────────────────────────────────────────────────────
         // Summe = 1.0  →  Score ∈ [0, 1]
         const double W_SIZE        = 0.10;  // Größe des Clusters
-        const double W_DEPTH       = 0.10;  // Tiefe in X-Richtung
         const double W_Z_DEPTH     = 0.10;  // Vertikale Tiefe
         const double W_DISTANCE    = 0.30;  // Nähe (invertiert)
-        const double W_CONTINUITY  = 0.15;  // Richtungstreue
+        const double W_CONTINUITY  = 0.25;  // Richtungstreue
         const double W_ENTRANCE    = 0.25;  // Eingangs-Penalty
         // Σ = 1.00
 
@@ -494,7 +493,6 @@ private:
 
             // Größe: log-skaliert damit riesige Cluster nicht dominieren
             double s_size      = norm(std::log1p(f.size), std::log1p(size_lo), std::log1p(size_hi));
-            double s_depth     = norm(f.depth,    depth_lo,   depth_hi);
             double s_z_depth   = norm(f.z_depth,  zdepth_lo,  zdepth_hi);
             double s_distance  = 1.0 - norm(f.distance, dist_lo, dist_hi); // kleiner Abstand = besser
             double s_continuity= (f.continuity + 1.0) / 2.0;               // [-1,1] → [0,1]
@@ -502,15 +500,14 @@ private:
 
             double score =
                 W_SIZE       * s_size      +
-                W_DEPTH      * s_depth     +
                 W_Z_DEPTH    * s_z_depth   +
                 W_DISTANCE   * s_distance  +
                 W_CONTINUITY * s_continuity+
                 W_ENTRANCE   * s_entrance;
 
             RCLCPP_INFO(get_logger(),
-                "Cluster %zu | size=%.2f depth=%.2f z=%.2f dist=%.2f cont=%.2f entr=%.2f → score=%.4f",
-                f.idx, s_size, s_depth, s_z_depth, s_distance, s_continuity, s_entrance, score);
+                "Cluster %zu | size=%.2f z=%.2f dist=%.2f cont=%.2f entr=%.2f → score=%.4f",
+                f.idx, s_size, s_z_depth, s_distance, s_continuity, s_entrance, score);
 
             if (score > best_score) {
                 best_score = score;
