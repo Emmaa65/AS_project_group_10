@@ -1,4 +1,4 @@
-# AutonomousSystems2025 // Project Group 10
+# Autonomous Systems 2025 // Project Group 10
 
 ## SubTerrain Challenge (Project)
 
@@ -17,7 +17,8 @@ cd # go to desired directory
 git clone git@github.com:Emmaa65/AS_project_group_10.git
 ```
 2. Copy simulation files
-This assumes that the ```/Simulation``` folder lies unpacked in ```/Downloads```. 
+
+This assumes that the ```/Simulation``` folder is unpacked in the ```/Downloads``` folder. 
 ```bash
 # create directory in /src/simulation/
 mkdir -p ~/AS_project_group_10/ros2_ws/src/simulation/unity_sim
@@ -27,8 +28,7 @@ cp -r ~/Downloads/Simulation/. ~/AS_project_group_10/ros2_ws/src/simulation/unit
 chmod +x ~/AS_project_group_10/ros2_ws/src/simulation/unity_sim/Simulation.x86_64
 ```
 3. Install required packages
-You may install the following packages before cloning the project repo (step 1) and copying the simulation files (step 2).
-The ```octomap_rviz_plugins``` (Step 4) however **must** come last, after the ROS 2 Octomap and PCL packages.
+
 ```bash
 # install packages, flag -y automatically approves of installation
 sudo apt install -y \
@@ -55,6 +55,12 @@ cd AS_project_group_10/ros2_ws/src/
 git clone https://github.com/OctoMap/octomap_rviz_plugins -b ros2
 cd ../
 ```
+
+**Note:**
+The required packages may be installed (Step 3) before cloning the project repo (step 1) and copying the simulation files (step 2).
+The ```octomap_rviz_plugins``` (Step 4) **must** come last, after the ROS 2 Octomap and PCL packages.
+However, it is highly recommended to follow the guide step by step.
+
 ## Running the simulation
 1. Checkout and pull main
 ```bash
