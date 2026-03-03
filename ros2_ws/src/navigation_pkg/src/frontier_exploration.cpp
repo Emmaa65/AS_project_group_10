@@ -366,7 +366,6 @@ private:
             Eigen::Vector3d centroid;
             double  distance;      // drone → centroid
             double  size;          // number of frontier points
-            double  depth;         // -centroid.x()  (höher = tiefer in Höhle)
             double  z_depth;       // -centroid.z()  (höher = weiter unten)
             double  continuity;    // cos-Winkel [-1, +1]
             double  entrance_dist; // Abstand zum Eingang
@@ -403,7 +402,6 @@ private:
             f.centroid = computeClusterCentroid(cloud, clusters[i]);
             f.distance = (f.centroid - drone_pos).norm();
             f.size     = static_cast<double>(clusters[i].indices.size());
-            f.depth    = -f.centroid.x();
             f.z_depth  = -f.centroid.z();
             f.valid    = true;
 
@@ -470,7 +468,6 @@ private:
 
         auto [size_lo,     size_hi    ] = valid_range([](const auto &f){ return f.size;     });
         auto [dist_lo,     dist_hi    ] = valid_range([](const auto &f){ return f.distance; });
-        auto [depth_lo,    depth_hi   ] = valid_range([](const auto &f){ return f.depth;    });
         auto [zdepth_lo,   zdepth_hi  ] = valid_range([](const auto &f){ return f.z_depth;  });
         // continuity ist schon in [-1,+1] → auf [0,1] schieben: (c+1)/2
         // entrance_dist ist binär {0,1}
@@ -478,10 +475,9 @@ private:
         // ── 3. Gewichte ─────────────────────────────────────────────────────────
         // Summe = 1.0  →  Score ∈ [0, 1]
         const double W_SIZE        = 0.10;  // Größe des Clusters
-        const double W_DEPTH       = 0.10;  // Tiefe in X-Richtung
         const double W_Z_DEPTH     = 0.10;  // Vertikale Tiefe
-        const double W_DISTANCE    = 0.30;  // Nähe (invertiert)
-        const double W_CONTINUITY  = 0.15;  // Richtungstreue
+        const double W_DISTANCE    = 0.35;  // Nähe (invertiert)
+        const double W_CONTINUITY  = 0.20;  // Richtungstreue
         const double W_ENTRANCE    = 0.25;  // Eingangs-Penalty
         // Σ = 1.00
 
@@ -494,7 +490,6 @@ private:
 
             // Größe: log-skaliert damit riesige Cluster nicht dominieren
             double s_size      = norm(std::log1p(f.size), std::log1p(size_lo), std::log1p(size_hi));
-            double s_depth     = norm(f.depth,    depth_lo,   depth_hi);
             double s_z_depth   = norm(f.z_depth,  zdepth_lo,  zdepth_hi);
             double s_distance  = 1.0 - norm(f.distance, dist_lo, dist_hi); // kleiner Abstand = besser
             double s_continuity= (f.continuity + 1.0) / 2.0;               // [-1,1] → [0,1]
@@ -502,15 +497,14 @@ private:
 
             double score =
                 W_SIZE       * s_size      +
-                W_DEPTH      * s_depth     +
                 W_Z_DEPTH    * s_z_depth   +
                 W_DISTANCE   * s_distance  +
                 W_CONTINUITY * s_continuity+
                 W_ENTRANCE   * s_entrance;
 
             RCLCPP_INFO(get_logger(),
-                "Cluster %zu | size=%.2f depth=%.2f z=%.2f dist=%.2f cont=%.2f entr=%.2f → score=%.4f",
-                f.idx, s_size, s_depth, s_z_depth, s_distance, s_continuity, s_entrance, score);
+                "Cluster %zu | size=%.2f z=%.2f dist=%.2f cont=%.2f entr=%.2f → score=%.4f",
+                f.idx, s_size, s_z_depth, s_distance, s_continuity, s_entrance, score);
 
             if (score > best_score) {
                 best_score = score;
