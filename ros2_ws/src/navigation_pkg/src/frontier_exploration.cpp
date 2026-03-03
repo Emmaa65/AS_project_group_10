@@ -444,10 +444,10 @@ private:
         // Prüfe ob valide Cluster vorhanden
         bool any_valid = std::any_of(feats.begin(), feats.end(), [](const auto &f){ return f.valid; });
         if (!any_valid) {
-            RCLCPP_WARN(get_logger(), "No valid clusters – fallback: deepest cluster");
-            // Fallback: tiefsten Cluster nehmen (kein Hard-Filter)
-            return std::max_element(feats.begin(), feats.end(),
-                [](const auto &a, const auto &b){ return a.depth < b.depth; }) - feats.begin();
+            RCLCPP_WARN(get_logger(), "No valid clusters – fallback: closest cluster");
+            // Fallback: nächsten Cluster nehmen (kein Hard-Filter)
+            return std::min_element(feats.begin(), feats.end(),
+                [](const auto &a, const auto &b){ return a.distance < b.distance; }) - feats.begin();
         }
 
         // ── 2. Min/Max über valide Cluster für Normierung ───────────────────────
