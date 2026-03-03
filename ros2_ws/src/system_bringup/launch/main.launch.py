@@ -196,7 +196,7 @@ def generate_launch_description():
 
     # Statistical outlier removal filter to remove isolated points (e.g., through wall gaps)
     pointcloud_filter_node = Node(
-        package="perception_pkg",
+        package="occupancy_grid",
         executable="pointcloud_outlier_filter",
         name="pointcloud_outlier_filter",
         output="screen",
