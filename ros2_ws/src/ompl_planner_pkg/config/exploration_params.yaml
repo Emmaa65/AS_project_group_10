@@ -18,6 +18,8 @@ exploration_manager:
     frontier_blacklist_radius: 15.0  # Reject new frontiers near failed/stalled goals
     frontier_stall_timeout_s: 20.0  # Abandon current frontier if no progress for this long
     frontier_progress_epsilon_m: 0.3  # Minimum distance improvement that counts as progress
+    frontier_exhaustion_timeout_s: 8.0  # Mark exploration complete after this long without valid frontier
+    frontier_exhaustion_min_requests: 3  # Require at least this many frontier requests before completion
     
     # Logging level
     log_level: "INFO"

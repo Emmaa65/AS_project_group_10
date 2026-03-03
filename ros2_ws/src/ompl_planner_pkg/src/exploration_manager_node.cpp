@@ -22,8 +22,8 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("frontier_blacklist_timeout_s", 60.0);
   this->declare_parameter("frontier_stall_timeout_s", 20.0);
   this->declare_parameter("frontier_progress_epsilon_m", 0.3);
-  this->declare_parameter("frontier_exhaustion_timeout_s", 25.0);
-  this->declare_parameter("frontier_exhaustion_min_requests", 8);
+  this->declare_parameter("frontier_exhaustion_timeout_s", 8.0);
+  this->declare_parameter("frontier_exhaustion_min_requests", 3);
   
   cave_entrance_[0] = this->get_parameter("cave_entrance_x").as_double();
   cave_entrance_[1] = this->get_parameter("cave_entrance_y").as_double();
@@ -374,7 +374,7 @@ void ExplorationManager::handleAutonomousExploration() {
   // reset the pending flag after a timeout so we can request again aggressively.
   if (selected_frontier_.distance < -0.5) {  // Consumed frontier marker
     double elapsed_since_request = (this->get_clock()->now() - last_frontier_request_time_).seconds();
-    const double REQUEST_TIMEOUT_S = 2.5;  // Allow frontier_exploration processing time before retry
+    const double REQUEST_TIMEOUT_S = 1.2;  // Keep retries responsive when no frontier can be produced
     
     if (frontier_request_pending_ && elapsed_since_request >= REQUEST_TIMEOUT_S) {
       RCLCPP_WARN(this->get_logger(),
