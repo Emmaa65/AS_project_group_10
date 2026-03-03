@@ -223,6 +223,11 @@ private:
     // Select best cluster: prefer clusters deeper in the cave (smaller X)
     // with a size bonus to avoid tiny outliers
     size_t best_idx = findBestCluster(cluster_indices, frontier_cloud);
+    if (best_idx >= cluster_indices.size()) {
+        RCLCPP_WARN(this->get_logger(),
+            "explorationTimerCallback: no valid cluster after filtering (likely duplicate/blacklisted loop), waiting for next map update");
+        return;
+    }
 
     // Compute centroid (XY average of frontier cluster)
     Eigen::Vector3d centroid = computeClusterCentroid(frontier_cloud, cluster_indices[best_idx]);
@@ -367,6 +372,9 @@ private:
         
         // First pass: try to find clusters far enough from drone
         bool found_distant_cluster = false;
+        size_t too_close_skipped = 0;
+        size_t unsafe_skipped = 0;
+        size_t duplicate_skipped = 0;
         const double entrance_x = -330.0;  // Cave entrance X coordinate
         
         for (size_t i = 0; i < clusters.size(); ++i) {
@@ -379,6 +387,7 @@ private:
                 RCLCPP_INFO(this->get_logger(),
                     "Cluster %zu: X=%.2f, size=%zu, distance=%.2f - SKIPPED (too close to drone)",
                     i, centroid.x(), clusters[i].indices.size(), distance);
+                ++too_close_skipped;
                 continue;
             }
             
@@ -387,6 +396,7 @@ private:
                 RCLCPP_INFO(this->get_logger(),
                     "Cluster %zu: X=%.2f, size=%zu - SKIPPED (too close to obstacles, <%.1fm safety margin)",
                     i, centroid.x(), clusters[i].indices.size(), safety_margin_);
+                ++unsafe_skipped;
                 continue;
             }
 
@@ -397,6 +407,7 @@ private:
                 RCLCPP_INFO(this->get_logger(),
                     "Cluster %zu: X=%.2f, size=%zu - SKIPPED (within 3m of last published frontier, dist=%.2f m)",
                     i, centroid.x(), clusters[i].indices.size(), dist_to_last_published);
+                ++duplicate_skipped;
                 continue;
             }
             
@@ -485,6 +496,15 @@ private:
         
         // Fallback: if all clusters too close, choose deepest one anyway
         if (!found_distant_cluster) {
+            // If all candidates were filtered only as duplicates of last-published frontier,
+            // do NOT republish them via fallback; let manager request again after map update/blacklist timeout.
+            if (duplicate_skipped > 0 && too_close_skipped == 0 && unsafe_skipped == 0) {
+                RCLCPP_WARN(this->get_logger(),
+                    "All %zu clusters skipped as duplicates of last published frontier (duplicate=%zu). Not selecting fallback.",
+                    clusters.size(), duplicate_skipped);
+                return clusters.size();
+            }
+
             RCLCPP_WARN(this->get_logger(), 
                 "All %zu clusters <%.1fm away from drone at (%.2f, %.2f, %.2f), selecting deepest as last resort", 
                 clusters.size(), min_distance, drone_pos.x(), drone_pos.y(), drone_pos.z());
@@ -592,12 +612,12 @@ private:
         // Calculate direction vector from drone to goal
         Eigen::Vector3d direction = centroid - drone_pos;
         
-        // Calculate yaw angle to point camera towards goal
+        // Calculate yaw angle to point body/camera towards goal
         // Yaw = atan2(dy, dx) rotates around Z axis to point in XY plane direction
         double yaw = std::atan2(direction.y(), direction.x());
         
-        // Add 180° offset to match camera/body orientation
-        yaw += M_PI;
+        // NO offset - drone should face where it's flying (camera points forward)
+        // If camera is forward-mounted, this is correct direction
         
         // Convert yaw to quaternion (rotation around Z axis)
         // q = [cos(yaw/2), 0, 0, sin(yaw/2)]

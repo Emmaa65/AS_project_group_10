@@ -15,7 +15,8 @@ exploration_manager:
     min_frontier_distance: 0.0
     max_frontier_distance: 1000.0  # Increased from 200m to allow backtracking to major cave clusters after exploration
     cave_interior_margin_x: 1.0   # Require frontier x < cave_entrance_x - margin
-    frontier_blacklist_radius: 15.0  # Reject new frontiers near failed/stalled goals
+    frontier_blacklist_radius: 8.0  # Tighter radius (reduced from 15m) to allow cycling through nearby frontiers in cave
+    frontier_blacklist_timeout_s: 10.0  # Clear blacklist entries after 10s to allow retrying frontiers
     frontier_stall_timeout_s: 20.0  # Abandon current frontier if no progress for this long
     frontier_progress_epsilon_m: 0.3  # Minimum distance improvement that counts as progress
     
@@ -30,12 +31,12 @@ rrt_path_planner:
     max_iterations: 1000         # iterations
     
     # Trajectory generation
-    max_velocity: 2.0            # m/s (increased for faster flight)
-    max_acceleration: 1.0        # m/s² (increased for faster flight)
+    max_velocity: 4.0            # m/s (reduced for slower exploration to allow OctoMap integration to catch up)
+    max_acceleration: 1.5        # m/s² (proportionally scaled with velocity reduction)
     
     # Replanning
-    replan_threshold: 0.5        # meters (only replan if target moves more than this) - aggressive for cave exploration
-    periodic_replan_interval_s: 60.0   # seconds (safety replan only)
+    replan_threshold: 0.5       # meters - replan when frontier moves significantly
+    periodic_replan_interval_s: 30.0   # seconds (replan if 30s have passed without significant frontier change)
     periodic_replan_min_progress_m: 1.0  # meters (only periodic replan if progress is below this over interval)
     
     # Cave parameters

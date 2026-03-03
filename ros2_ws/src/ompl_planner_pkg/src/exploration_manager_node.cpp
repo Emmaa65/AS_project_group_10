@@ -18,8 +18,8 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("min_frontier_distance", 0.5);
   this->declare_parameter("max_frontier_distance", 1000.0);  // Increased to allow deep cave exploration
   this->declare_parameter("cave_interior_margin_x", 1.0);
-  this->declare_parameter("frontier_blacklist_radius", 15.0);
-  this->declare_parameter("frontier_blacklist_timeout_s", 60.0);
+  this->declare_parameter("frontier_blacklist_radius", 8.0);  // Tighter radius for cave exploration
+  this->declare_parameter("frontier_blacklist_timeout_s", 10.0);  // Reduced from 60s for faster frontier retry
   this->declare_parameter("frontier_stall_timeout_s", 20.0);
   this->declare_parameter("frontier_progress_epsilon_m", 0.3);
   
@@ -114,6 +114,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
     RCLCPP_DEBUG(this->get_logger(),
       "Frontier too close (%.2f m < min %.2f m) - rejecting",
       frontier.distance, min_frontier_distance_);
+    frontier_request_pending_ = false;  // Clear flag so we can request another frontier
     return; // Ignore this frontier
   }
 
@@ -123,6 +124,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
       "Rejecting frontier [%.2f, %.2f, %.2f]: too far (%.2f m > max %.2f m)",
       frontier.position[0], frontier.position[1], frontier.position[2],
       frontier.distance, max_frontier_distance_);
+    frontier_request_pending_ = false;  // Clear flag so we can request another frontier
     return;
   }
 
@@ -132,6 +134,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
       "Rejecting frontier [%.2f, %.2f, %.2f] near/outside cave boundary (x=%.2f >= %.2f)",
       frontier.position[0], frontier.position[1], frontier.position[2],
       frontier.position[0], cave_entrance_[0] - cave_interior_margin_x_);
+    frontier_request_pending_ = false;  // Clear flag so we can request another frontier
     return;
   }
 
@@ -141,6 +144,7 @@ void ExplorationManager::frontierGoalCallback(const geometry_msgs::msg::PoseStam
       "Rejecting frontier [%.2f, %.2f, %.2f]: within blacklist radius %.2f m",
       frontier.position[0], frontier.position[1], frontier.position[2],
       frontier_blacklist_radius_);
+    frontier_request_pending_ = false;  // Clear flag so we can request another frontier
     return;
   }
   
@@ -287,8 +291,18 @@ void ExplorationManager::handleWaitingAtEntrance() {
   // Check if 5 seconds have elapsed
   auto elapsed = (this->get_clock()->now() - state_transition_time_).seconds();
   if (elapsed >= 5.0) {
+    // Reset frontier memory before entering cave so stale failed goals near the entrance
+    // do not prevent initial penetration into autonomous exploration.
+    const size_t cleared_blacklist = rejected_frontiers_.size();
+    rejected_frontiers_.clear();
+    planning_failures_ = 0;
+    selected_frontier_.distance = -1.0;
+    last_sent_frontier_ = Eigen::Vector3d::Zero();
+    resetActiveFrontierTracking();
+
     RCLCPP_INFO(this->get_logger(), 
-      "Grid stabilized. Starting autonomous exploration...");
+      "Grid stabilized. Starting autonomous exploration (cleared %zu blacklisted frontiers)",
+      cleared_blacklist);
     transitionToState(ExplorationState::AUTONOMOUS_EXPLORATION);
     requestNewFrontier("entered autonomous exploration");
   } else {
@@ -316,7 +330,7 @@ void ExplorationManager::handleAutonomousExploration() {
       planning_failures_);
   }
 
-  const double FRONTIER_REACHED_THRESHOLD = 2.0; // meters
+  const double FRONTIER_REACHED_THRESHOLD = 2.5; // meters - request next frontier when reasonably close
 
   // If we keep replanning/finishing without improving distance, abandon this frontier.
   if (selected_frontier_.distance > 0.1) {

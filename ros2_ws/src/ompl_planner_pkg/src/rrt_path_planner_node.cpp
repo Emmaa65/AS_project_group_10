@@ -87,27 +87,33 @@ RRTPathPlanner::RRTPathPlanner()
   trajectory_end_time_ = this->get_clock()->now();  // Initialize to now (no trajectory yet)
   last_trajectory_duration_ = 0.0;
   
-  RCLCPP_INFO(this->get_logger(),
-    "RRT Path Planner initialized (step_size: %.2f m, max_v: %.2f m/s, max_a: %.2f m/s²)",
+  RCLCPP_WARN(this->get_logger(),
+    "===== RRT Path Planner INITIALIZED =====");
+  RCLCPP_WARN(this->get_logger(),
+    "Step size: %.2f m | Max velocity: %.2f m/s | Max acceleration: %.2f m/s²",
     step_size_, max_velocity_, max_acceleration_);
+  RCLCPP_WARN(this->get_logger(),
+    "==========================================");
 }
 
 void RRTPathPlanner::targetFrontierCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg) {
   Eigen::Vector3d frontier;
   frontier << msg->point.x, msg->point.y, msg->point.z;
 
+  RCLCPP_INFO(this->get_logger(),
+    "targetFrontierCallback: received frontier [%.2f, %.2f, %.2f] (from_last=%.2f m)",
+    frontier[0], frontier[1], frontier[2],
+    has_target_ ? (frontier - target_frontier_).norm() : 999.0);
+
   // Ignore duplicates to avoid repeated re-acceptance churn on the same target.
   const double TARGET_DUPLICATE_THRESHOLD = 0.5; // meters
   if (has_target_ && (frontier - target_frontier_).norm() < TARGET_DUPLICATE_THRESHOLD) {
-    RCLCPP_DEBUG(this->get_logger(),
-      "Ignoring duplicate frontier [%.2f, %.2f, %.2f]",
-      frontier[0], frontier[1], frontier[2]);
+    RCLCPP_INFO(this->get_logger(),
+      "Ignoring duplicate frontier [%.2f, %.2f, %.2f] (dist %.3f m < threshold %.2f m)",
+      frontier[0], frontier[1], frontier[2],
+      (frontier - target_frontier_).norm(), TARGET_DUPLICATE_THRESHOLD);
     return;
   }
-  
-  RCLCPP_INFO(this->get_logger(),
-    "targetFrontierCallback: received frontier [%.2f, %.2f, %.2f]",
-    frontier[0], frontier[1], frontier[2]);
   
   // Validate frontier before accepting
   if (!isFrontierValid(frontier)) {
@@ -165,6 +171,22 @@ void RRTPathPlanner::stateCallback(const std_msgs::msg::String::SharedPtr msg) {
 }
 
 void RRTPathPlanner::planPath() {
+  // Periodic diagnostic: check that planning loop is active
+  static int plan_loop_count = 0;
+  if (++plan_loop_count > 200) {  // Every 10 seconds at 20Hz
+    plan_loop_count = 0;
+    RCLCPP_INFO(this->get_logger(),
+      "planPath loop active: state=%s, has_target=%d, pos=[%.1f, %.1f, %.1f]",
+      exploration_state_.c_str(), has_target_, current_position_[0], current_position_[1], current_position_[2]);
+    if (has_target_) {
+      RCLCPP_INFO(this->get_logger(),
+        "  Target: [%.1f, %.1f, %.1f], dist=%.2f m, last_plan_change=%.2f m",
+        target_frontier_[0], target_frontier_[1], target_frontier_[2],
+        (current_position_ - target_frontier_).norm(),
+        (target_frontier_ - last_planned_target_).norm());
+    }
+  }
+  
   // Only plan during autonomous exploration
   if (exploration_state_ != "AUTONOMOUS_EXPLORATION") {
     static int state_warn_count = 0;
@@ -178,8 +200,12 @@ void RRTPathPlanner::planPath() {
   
   // Only plan if we have a target
   if (!has_target_) {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-      "No target frontier available for planning");
+    static int no_target_count = 0;
+    if (++no_target_count % 100 == 0) {  // Log every 5 seconds
+      RCLCPP_INFO(this->get_logger(),
+        "Waiting for frontier target (has_target_=%d, last_frontier=[%.1f, %.1f, %.1f])",
+        has_target_, target_frontier_[0], target_frontier_[1], target_frontier_[2]);
+    }
     return;
   }
   
@@ -192,7 +218,7 @@ void RRTPathPlanner::planPath() {
   double time_since_last_plan = (now - last_plan_time_).seconds();
   
   bool target_changed = target_change >= replan_threshold_;
-  bool goal_reached = (distance_to_goal < 2.0 && has_target_);
+  bool goal_reached = (distance_to_goal < 1.0 && has_target_);  // Replan when drone gets within 1m of frontier
   bool first_plan = last_planned_target_.norm() < 0.1;
   double progress_since_last_plan = distance_at_last_plan_ - distance_to_goal;
   bool progress_stalled = (progress_since_last_plan < periodic_replan_min_progress_m_);
@@ -230,6 +256,13 @@ void RRTPathPlanner::planPath() {
   }
   
   if (!target_changed && !goal_reached && !first_plan && !trajectory_replan_needed && !periodic_replan_due) {
+    static int skip_count = 0;
+    if (++skip_count % 100 == 0) {  // Log every 5 seconds (100 cycles at 20Hz)
+      RCLCPP_INFO(this->get_logger(),
+        "SKIP PLANNING: target_change=%.2f m (need >%.2f), goal=%.2f m (need <2.0), traj_time_left=%.1f s, progress=%.2f m (need >%.2f m/%.1f s)",
+        target_change, replan_threshold_, distance_to_goal,
+        (2.0 - time_since_trajectory_end), progress_since_last_plan, periodic_replan_min_progress_m_, periodic_replan_interval_s_);
+    }
     return;
   }
   
@@ -395,6 +428,8 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
   std::vector<Eigen::Vector3d> path;
   
   if (solved) {
+    const bool approximate_solution =
+      (solved == ompl::base::PlannerStatus::APPROXIMATE_SOLUTION);
     // Simplify the solution
     ss.simplifySolution();
     
@@ -422,6 +457,27 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
       Eigen::Vector3d point;
       point << (*state)[0], (*state)[1], (*state)[2];
       path.push_back(point);
+    }
+
+    if (approximate_solution && !path.empty()) {
+      const double dist_start_to_goal = (start - goal).norm();
+      const double dist_end_to_goal = (path.back() - goal).norm();
+      const double progress_toward_goal = dist_start_to_goal - dist_end_to_goal;
+
+      // Accept approximate solution only if it makes meaningful progress AND endpoint is reasonably close.
+      const double kMinApproxProgressMeters = 8.0;  // Must make significant progress
+      const double kMaxApproxShortfallMeters = 10.0;  // Endpoint can't be too far from goal
+      
+      if (progress_toward_goal < kMinApproxProgressMeters || dist_end_to_goal > kMaxApproxShortfallMeters) {
+        RCLCPP_WARN(this->get_logger(),
+          "RRT* approximate solution rejected: progress %.2f m < %.2f m OR shortfall %.2f m > %.2f m",
+          progress_toward_goal, kMinApproxProgressMeters, dist_end_to_goal, kMaxApproxShortfallMeters);
+        return {};
+      }
+
+      RCLCPP_WARN(this->get_logger(),
+        "RRT* approximate solution accepted: progress %.2f m toward goal (end still %.2f m away)",
+        progress_toward_goal, dist_end_to_goal);
     }
     
     RCLCPP_INFO(this->get_logger(),
@@ -570,7 +626,8 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
       }
     }
     
-    // End vertex (goal = last path point)
+    // End vertex is the actual planned end-point from RRT path.
+    // For approximate solutions, path.back() may be short of frontier but remains collision-consistent.
     mav_trajectory_generation::Vertex end(dimension);
     end.makeStartOrEnd(path.back(), derivative_to_optimize);
     end.addConstraint(mav_trajectory_generation::derivative_order::VELOCITY,
@@ -578,52 +635,87 @@ void RRTPathPlanner::publishTrajectory(const std::vector<Eigen::Vector3d>& path)
     vertices.push_back(end);
     
     RCLCPP_INFO(this->get_logger(),
-      "Creating trajectory with %zu vertices (%zu waypoints from RRT*)",
-      vertices.size(), path.size());
+      "Creating trajectory with %zu vertices: start -> %zu intermediate -> end at [%.1f, %.1f, %.1f] (frontier [%.1f, %.1f, %.1f])",
+      vertices.size(), path.size() - 2,
+      path.back()[0], path.back()[1], path.back()[2],
+      target_frontier_[0], target_frontier_[1], target_frontier_[2]);
     
-    // Estimate segment times based on distances and velocities
+    // Estimate segment times directly from the actual trajectory vertices.
+    // This guarantees segment_times.size() == vertices.size() - 1.
+    std::vector<Eigen::Vector3d> vertex_positions;
+    vertex_positions.reserve(vertices.size());
+    vertex_positions.push_back(current_position_);
+    if (path.size() > 2) {
+      for (size_t i = 1; i < path.size() - 1; ++i) {
+        vertex_positions.push_back(path[i]);
+      }
+    }
+    vertex_positions.push_back(path.back());
+
     std::vector<double> segment_times;
-    segment_times = mav_trajectory_generation::estimateSegmentTimes(
-      vertices, max_velocity_, max_acceleration_);
-    
-    // Scale down segment times for faster flight (estimateSegmentTimes is conservative)
-    // Factor of 0.5 = 2x faster trajectories
-    const double time_scaling_factor = 0.5;
-    for (auto& time : segment_times) {
-      time *= time_scaling_factor;
+    segment_times.reserve(vertex_positions.size() - 1);
+    for (size_t i = 0; i + 1 < vertex_positions.size(); ++i) {
+      double dist = (vertex_positions[i + 1] - vertex_positions[i]).norm();
+      double segment_time = (dist / max_velocity_) * 1.2;
+      segment_time = std::max(0.5, segment_time);
+      segment_times.push_back(segment_time);
     }
-    
-    // Log segment times for debugging
+
+    if (segment_times.size() != vertices.size() - 1) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Invalid segment count: got %zu, expected %zu (vertices=%zu)",
+        segment_times.size(), vertices.size() - 1, vertices.size());
+      return;
+    }
+    // Log total trajectory time
     double total_time = 0.0;
-    for (size_t i = 0; i < segment_times.size(); ++i) {
-      total_time += segment_times[i];
-      RCLCPP_DEBUG(this->get_logger(),
-        "Segment %zu time: %.2f s", i, segment_times[i]);
+    for (double t : segment_times) {
+      total_time += t;
     }
+    double total_distance = (path.back() - current_position_).norm();
     RCLCPP_INFO(this->get_logger(),
-      "Total trajectory time: %.2f s for %zu segments (scaled by %.2f)",
-      total_time, segment_times.size(), time_scaling_factor);
-    
-    // Create trajectory using linear optimization (Phase 1)
-    // For Phase 1, linear optimization is sufficient for straight-line paths
-    mav_trajectory_generation::NonlinearOptimizationParameters nlp_params;
-    mav_trajectory_generation::PolynomialOptimizationNonLinear<10> planning_problem(
-      dimension, nlp_params);
-    
-    if (!planning_problem.setupFromVertices(vertices, segment_times, 
-        mav_trajectory_generation::PolynomialOptimization<10>::kHighestDerivativeToOptimize)) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to setup trajectory vertices");
-      return;
-    }
-    
-    // Solve using linear optimization for Phase 1
-    if (!planning_problem.solveLinear()) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to solve linear trajectory optimization");
-      return;
-    }
+      "Total trajectory time: %.2f s for %zu segments, distance: %.2f m (avg %.2f m/s), remaining_to_frontier: %.2f m",
+      total_time, segment_times.size(), total_distance, total_distance / total_time,
+      (target_frontier_ - path.back()).norm());
     
     mav_trajectory_generation::Trajectory trajectory;
-    planning_problem.getTrajectory(&trajectory);
+    const bool degenerate_two_vertex_case = (vertices.size() <= 2);
+
+    if (degenerate_two_vertex_case) {
+      RCLCPP_WARN(this->get_logger(),
+        "Using linear trajectory optimization for 2-vertex trajectory to avoid nonlinear optimizer crash");
+
+      mav_trajectory_generation::PolynomialOptimization<10> linear_problem(dimension);
+
+      if (!linear_problem.setupFromVertices(vertices, segment_times,
+          mav_trajectory_generation::PolynomialOptimization<10>::kHighestDerivativeToOptimize)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to setup linear trajectory vertices");
+        return;
+      }
+
+      linear_problem.solveLinear();
+      linear_problem.getTrajectory(&trajectory);
+    } else {
+      mav_trajectory_generation::NonlinearOptimizationParameters nlp_params;
+      mav_trajectory_generation::PolynomialOptimizationNonLinear<10> planning_problem(
+        dimension, nlp_params);
+
+      if (!planning_problem.setupFromVertices(vertices, segment_times,
+          mav_trajectory_generation::PolynomialOptimization<10>::kHighestDerivativeToOptimize)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to setup trajectory vertices");
+        return;
+      }
+
+      // Add velocity and acceleration constraints to ensure trajectory respects limits
+      planning_problem.addMaximumMagnitudeConstraint(
+          mav_trajectory_generation::derivative_order::VELOCITY, max_velocity_);
+      planning_problem.addMaximumMagnitudeConstraint(
+          mav_trajectory_generation::derivative_order::ACCELERATION, max_acceleration_);
+
+      // Solve using nonlinear optimization so magnitude constraints are applied.
+      planning_problem.optimize();
+      planning_problem.getTrajectory(&trajectory);
+    }
     
     // Convert to ROS message
     mav_planning_msgs::msg::PolynomialTrajectory4D msg;
