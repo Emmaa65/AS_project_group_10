@@ -6,6 +6,7 @@
 
 #include <mav_msgs/msg/actuators.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <trajectory_msgs/msg/multi_dof_joint_trajectory_point.hpp>
 
 #include <Eigen/Dense>
@@ -64,6 +65,7 @@ class ControllerNode : public rclcpp::Node {
   //
   rclcpp::Subscription<trajectory_msgs::msg::MultiDOFJointTrajectoryPoint>::SharedPtr desired_state_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr current_state_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr landing_complete_sub_;
   rclcpp::Publisher<mav_msgs::msg::Actuators>::SharedPtr motor_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   //
@@ -110,6 +112,27 @@ class ControllerNode : public rclcpp::Node {
     return val>0?sqrt(val):-sqrt(-val);
   }
 
+  void publishZeroMotorCommand() {
+    mav_msgs::msg::Actuators cmd;
+    cmd.angular_velocities.resize(4);
+    cmd.angular_velocities[0] = 0.0;
+    cmd.angular_velocities[1] = 0.0;
+    cmd.angular_velocities[2] = 0.0;
+    cmd.angular_velocities[3] = 0.0;
+    motor_pub_->publish(cmd);
+  }
+
+  void onLandingComplete(const std_msgs::msg::Bool::SharedPtr msg) {
+    if (!msg || !msg->data) {
+      return;
+    }
+
+    RCLCPP_WARN(this->get_logger(),
+      "Landing complete received - sending zero motor command and shutting down controller node");
+    publishZeroMotorCommand();
+    rclcpp::shutdown();
+  }
+
 public:
   ControllerNode()
   : rclcpp::Node("controller_node"),
@@ -148,6 +171,9 @@ public:
         
     current_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "current_state", 10, std::bind(&ControllerNode::onCurrentState, this, std::placeholders::_1));
+
+    landing_complete_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+      "/mission/landing_complete", 10, std::bind(&ControllerNode::onLandingComplete, this, std::placeholders::_1));
         
     motor_pub_ = this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
 

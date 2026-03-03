@@ -114,7 +114,7 @@ public:
 
         //update objectManager
         object_manager_.process_detection(points_3d, this->get_logger());
-        object_manager_.print_all_objects(this->get_logger());
+        //object_manager_.print_all_objects(this->get_logger());
         
         sensor_msgs::msg::PointCloud2 cloud_msg = this->transformToPointCloud(points_3d, semantic);
         point_cloud2_pub_->publish(cloud_msg);

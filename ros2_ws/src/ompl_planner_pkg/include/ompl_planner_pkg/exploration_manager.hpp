@@ -87,9 +87,13 @@ private:
   double frontier_blacklist_timeout_s_ = 60.0; // Expire blacklist entries after this time
   double frontier_stall_timeout_s_ = 20.0; // Reject active frontier if no progress for this long
   double frontier_progress_epsilon_m_ = 0.3; // Minimum progress to reset stall timer
+  double frontier_exhaustion_timeout_s_ = 25.0; // Consider exploration complete if no valid frontier for this long
+  int frontier_exhaustion_min_requests_ = 8; // Minimum request attempts before completion
   std::vector<std::pair<Eigen::Vector3d, rclcpp::Time>> rejected_frontiers_; // [position, timestamp]
   double active_frontier_min_distance_ = std::numeric_limits<double>::infinity();
   rclcpp::Time active_frontier_last_progress_time_;
+  rclcpp::Time no_frontier_since_;
+  int no_frontier_request_count_ = 0;
   
   // Timing
   rclcpp::Time last_frontier_selection_;
@@ -127,6 +131,7 @@ private:
   bool isFrontierRejected(const Eigen::Vector3d& frontier) const;
   void rejectActiveFrontier(const std::string& reason);
   void resetActiveFrontierTracking();
+  void resetFrontierExhaustionTracking();
   
   // ========================================================================
   // Helper Methods
