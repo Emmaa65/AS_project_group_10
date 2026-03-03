@@ -18,7 +18,7 @@ RRTPathPlanner::RRTPathPlanner()
   RCLCPP_INFO(this->get_logger(), "Initializing RRT Path Planner...");
   
   // Load parameters
-  this->declare_parameter("max_planning_time", 1.0);
+  this->declare_parameter("max_planning_time", 3.0);
   this->declare_parameter("step_size", 3.0);  // Larger steps = fewer waypoints
   this->declare_parameter("max_iterations", 1000);
   this->declare_parameter("max_velocity", 10.0);  // Increased from 0.5
@@ -378,10 +378,10 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
   goalState[1] = goal[1];
   goalState[2] = goal[2];
   
-  ss.setStartAndGoalStates(startState, goalState);
+  ss.setStartAndGoalStates(startState, goalState, 0.1);
   
   // Create RRT* planner
-  auto planner = std::make_shared<ompl::geometric::RRTstar>(ss.getSpaceInformation());
+  auto planner = std::make_shared<ompl::geometric::BITstar>(ss.getSpaceInformation());
   planner->setRange(10.0);  // Maximum distance between states
   ss.setPlanner(planner);
   
@@ -722,7 +722,7 @@ bool RRTPathPlanner::isFrontierValid(const Eigen::Vector3d& frontier) {
   
   // Check 2: Cave X-coordinates are always < -330 (cave entrance X)
   // Reject frontiers outside the cave (X >= -330)
-  if (frontier[0] >= cave_entrance_[0]) {
+  if (frontier[0] >= cave_entrance_[0] && frontier[2] < cave_entrance_[2]) {
     RCLCPP_DEBUG(this->get_logger(),
       "Rejecting frontier [%.2f, %.2f, %.2f] - outside cave (X=%.2f >= cave_entrance_x=%.2f)",
       frontier[0], frontier[1], frontier[2], frontier[0], cave_entrance_[0]);
