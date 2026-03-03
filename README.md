@@ -74,6 +74,15 @@ colcon build && source install/setup.bash
 ros2 launch system_bringup main.launch.py
 
 ```
+3. View saved octomap afer simulation has finished
+   ```bash
+   ros2 launch system_bringup view_saved_octomap.launch.py
+   ```
+4. Text file with detected objects is stored under:
+   ```bash
+   ~/AS_project_group_10/ros2_ws/detected_objects.txt
+   ``
 
+  
 
 
