@@ -16,9 +16,10 @@ ExplorationManager::ExplorationManager()
   this->declare_parameter("entrance_reach_tolerance", 1.5);
   this->declare_parameter("frontier_update_rate", 2.0);
   this->declare_parameter("min_frontier_distance", 0.5);
-  this->declare_parameter("max_frontier_distance", 300.0);
+  this->declare_parameter("max_frontier_distance", 1000.0);  // Increased to allow deep cave exploration
   this->declare_parameter("cave_interior_margin_x", 1.0);
   this->declare_parameter("frontier_blacklist_radius", 15.0);
+  this->declare_parameter("frontier_blacklist_timeout_s", 60.0);
   this->declare_parameter("frontier_stall_timeout_s", 20.0);
   this->declare_parameter("frontier_progress_epsilon_m", 0.3);
   
@@ -31,6 +32,7 @@ ExplorationManager::ExplorationManager()
   max_frontier_distance_ = this->get_parameter("max_frontier_distance").as_double();
   cave_interior_margin_x_ = this->get_parameter("cave_interior_margin_x").as_double();
   frontier_blacklist_radius_ = this->get_parameter("frontier_blacklist_radius").as_double();
+  frontier_blacklist_timeout_s_ = this->get_parameter("frontier_blacklist_timeout_s").as_double();
   frontier_stall_timeout_s_ = this->get_parameter("frontier_stall_timeout_s").as_double();
   frontier_progress_epsilon_m_ = this->get_parameter("frontier_progress_epsilon_m").as_double();
   
@@ -441,8 +443,16 @@ void ExplorationManager::requestNewFrontier(const std::string& reason) {
 }
 
 bool ExplorationManager::isFrontierRejected(const Eigen::Vector3d& frontier) const {
-  for (const auto& rejected : rejected_frontiers_) {
-    if ((frontier - rejected).norm() <= frontier_blacklist_radius_) {
+  rclcpp::Time now = this->get_clock()->now();
+  for (const auto& [rejected_pos, rejection_time] : rejected_frontiers_) {
+    // Check if blacklist entry has expired
+    double age_s = (now - rejection_time).seconds();
+    if (age_s > frontier_blacklist_timeout_s_) {
+      continue; // This blacklist entry has expired, skip it
+    }
+    
+    // Check if new frontier is within blacklist radius of rejected position
+    if ((frontier - rejected_pos).norm() <= frontier_blacklist_radius_) {
       return true;
     }
   }
@@ -451,12 +461,13 @@ bool ExplorationManager::isFrontierRejected(const Eigen::Vector3d& frontier) con
 
 void ExplorationManager::rejectActiveFrontier(const std::string& reason) {
   if (selected_frontier_.distance > 0.0) {
-    rejected_frontiers_.push_back(selected_frontier_.position);
+    rejected_frontiers_.push_back({selected_frontier_.position, this->get_clock()->now()});
     RCLCPP_WARN(this->get_logger(),
-      "Blacklisting frontier [%.2f, %.2f, %.2f] (%s)",
+      "Blacklisting frontier [%.2f, %.2f, %.2f] for %.1f s (%s)",
       selected_frontier_.position[0],
       selected_frontier_.position[1],
       selected_frontier_.position[2],
+      frontier_blacklist_timeout_s_,
       reason.c_str());
   }
 
