@@ -436,7 +436,11 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
 
 bool RRTPathPlanner::isStateValid(const ompl::base::State *state) {
   const auto *pos = state->as<ompl::base::RealVectorStateSpace::StateType>();
-  
+  Eigen::Vector3d position((*pos)[0], (*pos)[1], (*pos)[2]);
+  // Startposition always valid to allow planning from inside obstacles (e.g., if we drift into a wall, we can still plan out)
+  if ((position - current_position_).norm() < 0.5) {
+    return true;
+  }
   // ENTRANCE BLOCKING: Apply synthetic entrance disc barrier.
   // This acts as a SOLID OBSTACLE - RRT* cannot plan paths through it.
   // - Position: X ∈ [-328, -322] (6m thick disc, 2-8m outside cave entrance at X=-330)

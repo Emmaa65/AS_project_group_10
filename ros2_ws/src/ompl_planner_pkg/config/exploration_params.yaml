@@ -13,7 +13,7 @@ exploration_manager:
     
     # Distance constraints for frontier selection [meters]
     min_frontier_distance: 0.0
-    max_frontier_distance: 300.0  # Increased from 200m to allow backtracking to major cave clusters after exploration
+    max_frontier_distance: 1000.0  # Increased from 200m to allow backtracking to major cave clusters after exploration
     cave_interior_margin_x: 1.0   # Require frontier x < cave_entrance_x - margin
     frontier_blacklist_radius: 15.0  # Reject new frontiers near failed/stalled goals
     frontier_stall_timeout_s: 20.0  # Abandon current frontier if no progress for this long
