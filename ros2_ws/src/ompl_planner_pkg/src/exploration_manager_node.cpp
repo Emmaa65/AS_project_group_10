@@ -471,7 +471,9 @@ void ExplorationManager::rejectActiveFrontier(const std::string& reason) {
       reason.c_str());
   }
 
-  selected_frontier_.distance = 0.0;
+  // Mark as consumed so odometry callback does not resurrect this frontier
+  // by recomputing distance from its last position.
+  selected_frontier_.distance = -1.0;
   planning_failures_ = 0;
   last_sent_frontier_ = Eigen::Vector3d::Zero();
   resetActiveFrontierTracking();

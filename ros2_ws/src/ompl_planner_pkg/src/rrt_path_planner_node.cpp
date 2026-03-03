@@ -394,7 +394,7 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
   
   std::vector<Eigen::Vector3d> path;
   
-  if (solved) {
+  if (solved == ompl::base::PlannerStatus::EXACT_SOLUTION) {
     // Simplify the solution
     ss.simplifySolution();
     
@@ -423,10 +423,22 @@ std::vector<Eigen::Vector3d> RRTPathPlanner::planPathWithRRTStar(
       point << (*state)[0], (*state)[1], (*state)[2];
       path.push_back(point);
     }
+
+    const double goal_tolerance_m = 1.0;
+    const double end_to_goal = (path.back() - goal).norm();
+    if (end_to_goal > goal_tolerance_m) {
+      RCLCPP_WARN(this->get_logger(),
+        "Discarding planned path: endpoint %.2f m away from goal (tol %.2f m)",
+        end_to_goal, goal_tolerance_m);
+      return {};
+    }
     
     RCLCPP_INFO(this->get_logger(),
       "Final path has %zu waypoints for trajectory generation",
       path.size());
+  } else if (solved == ompl::base::PlannerStatus::APPROXIMATE_SOLUTION) {
+    RCLCPP_WARN(this->get_logger(),
+      "RRT* returned only APPROXIMATE solution; treating as planning failure");
   } else {
     RCLCPP_ERROR(this->get_logger(), "RRT* failed to find a path");
   }
