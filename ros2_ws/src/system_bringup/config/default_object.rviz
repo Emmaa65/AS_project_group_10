@@ -9,6 +9,9 @@ Panels:
         - /OccupancyGrid1
         - /OctoMap1
         - /Detected Object1
+        - /Frontier Goals (Last 5)1
+        - /Planned Path1
+        - /Exploration Markers1
       Splitter Ratio: 0.5
     Tree Height: 355
   - Class: rviz_common/Selection
@@ -74,7 +77,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /camera/pointcloud
+        Value: /camera/pointcloud_raw
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -226,6 +229,49 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1.0
+      Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Frontier Goals (Last 5)
+      Namespaces:
+        frontier_goal_history: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /exploration/frontier_goal_history_markers
+      Value: true
+    - Alpha: 1.0
+      Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Planned Path
+      Namespaces:
+        intermediate_waypoints: true
+        start: true
+        final_goal: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planned_path_markers
+      Value: true
+    - Alpha: 1.0
+      Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Exploration Markers
+      Namespaces:
+        cave_entrance: true
+        current_position: true
+        selected_frontier: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: exploration_markers
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -272,7 +318,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 8.03953742980957
+      Distance: 30
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -288,7 +334,7 @@ Visualization Manager:
       Name: Current View
       Near Clip Distance: 0.009999999776482582
       Pitch: 0.1353980451822281
-      Target Frame: <Fixed Frame>
+      Target Frame: camera
       Value: Orbit (rviz)
       Yaw: 6.2585835456848145
     Saved: ~

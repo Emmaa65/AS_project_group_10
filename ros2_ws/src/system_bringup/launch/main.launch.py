@@ -4,6 +4,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -20,6 +22,14 @@ def generate_launch_description():
     enable_controller = LaunchConfiguration("enable_controller")
     enable_waypoints = LaunchConfiguration("enable_waypoints")
     trajectory_finish_topic = LaunchConfiguration("trajectory_finish_topic")
+    enable_frontier = LaunchConfiguration("enable_frontier")
+    enable_pointcloud_filter = LaunchConfiguration("enable_pointcloud_filter")
+
+    ompl_params_file = PathJoinSubstitution([
+        FindPackageShare("ompl_planner_pkg"),
+        "config",
+        "exploration_params.yaml",
+    ])
 
     save_octomap_on_shutdown = LaunchConfiguration("save_octomap_on_shutdown")
     octomap_save_path = LaunchConfiguration("octomap_save_path")
@@ -74,6 +84,16 @@ def generate_launch_description():
             "trajectory_finish_topic",
             default_value="/trajectory_finished",
             description="Bool topic that signals end of static trajectory"
+        ),
+        DeclareLaunchArgument(
+            "enable_frontier",
+            default_value="true",
+            description="Launch frontier exploration node from navigation_pkg"
+        ),
+        DeclareLaunchArgument(
+            "enable_pointcloud_filter",
+            default_value="false",
+            description="Enable point cloud outlier filter (true=filtered, false=raw cloud)"
         ),
         DeclareLaunchArgument(
             "save_octomap_on_shutdown",
@@ -166,7 +186,7 @@ def generate_launch_description():
         remappings=[
             ("image_rect", "/realsense/depth/image"),
             ("camera_info", "/realsense/depth/camera_info"),
-            ("points", "/camera/pointcloud"),
+            ("points", "/camera/pointcloud_raw"),  # Changed to _raw
         ],
         parameters=[
             {"queue_size": 10}
@@ -174,6 +194,27 @@ def generate_launch_description():
         condition=IfCondition(enable_perception),
     )
 
+    # Statistical outlier removal filter to remove isolated points (e.g., through wall gaps)
+    pointcloud_filter_node = Node(
+        package="occupancy_grid",
+        executable="pointcloud_outlier_filter",
+        name="pointcloud_outlier_filter",
+        output="screen",
+        remappings=[
+            ("cloud_in", "/camera/pointcloud_raw"),
+            ("cloud_out", "/camera/pointcloud"),
+        ],
+        parameters=[
+            {"voxel_leaf_size": 0.05},    # 5cm voxels (balanced: speed + detail)
+            {"mean_k": 10},               # Reduced: 20 neighbors → 10 (faster)
+            {"stddev_mul_thresh": 1.0},   # Relaxed: 1.5 → 1.0 (faster filtering)
+        ],
+        condition=IfCondition(enable_pointcloud_filter),
+    )
+
+    # OctoMap server subscribes to appropriate cloud topic based on filter setting
+    # If filter enabled: subscribe to /camera/pointcloud (filtered output)
+    # If filter disabled: subscribe to /camera/pointcloud_raw (raw depth)
     octomap_server_node = Node(
         package="octomap_server",
         executable="octomap_server_node",
@@ -181,8 +222,8 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {"frame_id": "world"},
-            {"resolution": 1.0},
-            {"sensor_model.max_range": 50.0},
+            {"resolution": 2.0},
+            {"sensor_model.max_range": 75.0},
             {"save_on_shutdown": save_octomap_on_shutdown},
             {"save_map_path": octomap_save_path},
             {"autosave_interval_sec": octomap_autosave_interval_sec},
@@ -190,7 +231,27 @@ def generate_launch_description():
         remappings=[
             ("cloud_in", "/camera/pointcloud"),
         ],
-        condition=IfCondition(enable_octomap),
+        condition=IfCondition(enable_pointcloud_filter),
+    )
+    
+    # Alternative OctoMap node for when filter is disabled (subscribes to raw cloud)
+    octomap_server_node_raw = Node(
+        package="octomap_server",
+        executable="octomap_server_node",
+        name="octomap_server",
+        output="screen",
+        parameters=[
+            {"frame_id": "world"},
+            {"resolution": 2.0},
+            {"sensor_model.max_range": 75.0},
+            {"save_on_shutdown": save_octomap_on_shutdown},
+            {"save_map_path": octomap_save_path},
+            {"autosave_interval_sec": octomap_autosave_interval_sec},
+        ],
+        remappings=[
+            ("cloud_in", "/camera/pointcloud_raw"),
+        ],
+        condition=UnlessCondition(enable_pointcloud_filter),
     )
 
     controller_launch = IncludeLaunchDescription(
@@ -241,19 +302,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    start_cave_stack_on_trajectory_finish = RegisterEventHandler(
-        OnProcessExit(
-            target_action=wait_for_trajectory_finish,
-            on_exit=[
-                depth_to_pointcloud_node,
-                perception_launch,
-                octomap_server_node,
-                object_detection_launch,
-            ],
-        )
-    )
-
-    # RViz node
+    # RViz node (defined here before event handler references it)
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -267,6 +316,44 @@ def generate_launch_description():
         condition=IfCondition(enable_rviz),
     )
 
+    start_cave_stack_on_trajectory_finish = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_for_trajectory_finish,
+            on_exit=[
+                depth_to_pointcloud_node,
+                perception_launch,
+                octomap_server_node,
+                octomap_server_node_raw,
+                object_detection_launch,
+                rviz_node,
+                Node(
+                    package="navigation_pkg",
+                    executable="frontier_exploration",
+                    name="frontier_exploration",
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+                # Exploration manager and RRT path planner
+                Node(
+                    package="ompl_planner_pkg",
+                    executable="exploration_manager_node",
+                    name="exploration_manager",
+                    parameters=[ompl_params_file],
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+                Node(
+                    package="ompl_planner_pkg",
+                    executable="rrt_path_planner_node",
+                    name="rrt_path_planner",
+                    parameters=[ompl_params_file],
+                    output="screen",
+                    condition=IfCondition(enable_frontier),
+                ),
+            ],
+        )
+    )
+
     return LaunchDescription(
         declared_args
         + [
@@ -275,6 +362,6 @@ def generate_launch_description():
             waypoint_launch,
             wait_for_trajectory_finish,
             start_cave_stack_on_trajectory_finish,
-            rviz_node,
+            pointcloud_filter_node,
         ]
     )
